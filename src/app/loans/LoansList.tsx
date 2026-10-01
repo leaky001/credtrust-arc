@@ -14,7 +14,7 @@ import {
   Landmark,
   Activity
 } from "lucide-react";
-import { formatEther, parseEther } from "ethers";
+import { formatUsdc, parseUsdc } from "@/lib/usdc";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { useLoans } from "@/hooks/useLoans";
@@ -23,6 +23,7 @@ import type { Loan } from "@/types/loan";
 import ConfirmModal from "@/components/ui/ConfirmModal";
 import { Toast } from "@/components/ui/Toast";
 import { cn } from "@/lib/utils";
+import { TransactionNotice } from "@/components/ui/TransactionNotice";
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -55,10 +56,11 @@ interface LoansListProps {
   lender?: string;
   status?: string[];
   emptyMessage?: string;
+  requireWallet?: boolean;
 }
 
-export function LoansList({ borrower, lender, status, emptyMessage }: LoansListProps) {
-  const { fetchLoans, fetchCreditScore, isConfigured, fundLoan, repayLoan, actionLoading, error } = useLoans();
+export function LoansList({ borrower, lender, status, emptyMessage, requireWallet }: LoansListProps) {
+  const { fetchLoans, fetchCreditScore, isConfigured, fundLoan, repayLoan, actionLoading, error, transaction } = useLoans();
   const { address, switchNetwork } = useWallet();
   const [loans, setLoans] = useState<Loan[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,10 +73,17 @@ export function LoansList({ borrower, lender, status, emptyMessage }: LoansListP
   const [fundError, setFundError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Reset loans state immediately on borrower/lender/filter change to eliminate stale data
+    setLoans([]);
     if (!isConfigured) {
       setLoading(false);
       return;
     }
+    if (requireWallet && !borrower && !lender) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
     let mounted = true;
     fetchLoans()
       .then((data) => {
@@ -98,7 +107,7 @@ export function LoansList({ borrower, lender, status, emptyMessage }: LoansListP
     return () => {
       mounted = false;
     };
-  }, [fetchLoans, isConfigured, borrower, lender, status]);
+  }, [fetchLoans, isConfigured, borrower, lender, status, requireWallet]);
 
   useEffect(() => {
     if (!isConfigured || loans.length === 0) return;
@@ -173,7 +182,7 @@ export function LoansList({ borrower, lender, status, emptyMessage }: LoansListP
           </h3>
           <p className="text-body text-slate-600 dark:text-slate-400 max-w-md mx-auto mb-8">
             {isWrongNetwork
-              ? `Your wallet is currently connected to the wrong network. Please switch to ${isLocal ? "Hardhat Local" : "Creditcoin Testnet"} to access the marketplace.`
+              ? `Your wallet is currently connected to the wrong network. Please switch to ${isLocal ? "Hardhat Local" : "Arc Mainnet"} (chain ID ${expectedChainId}) to access the marketplace.`
               : error}
           </p>
           {isWrongNetwork ? (
@@ -201,6 +210,17 @@ export function LoansList({ borrower, lender, status, emptyMessage }: LoansListP
           )}
         </div>
       </motion.div>
+    );
+  }
+
+  if (requireWallet && !borrower && !lender) {
+    return (
+      <div className="flex min-h-[200px] flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-900/10 p-8 text-center">
+        <User className="size-8 text-slate-400 mb-3" />
+        <p className="text-small font-medium text-slate-500">
+          Connect your wallet to view your personal activity.
+        </p>
+      </div>
     );
   }
 
@@ -254,8 +274,8 @@ export function LoansList({ borrower, lender, status, emptyMessage }: LoansListP
                   </div>
 
                   <h3 className="text-h4 font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                    <span className="text-glow-primary">{formatEther(loan.principal)}</span>
-                    <span className="text-slate-400 font-medium">CTC Request</span>
+                    <span className="text-glow-primary">{formatUsdc(loan.principal)}</span>
+                    <span className="text-slate-400 font-medium">USDC Request</span>
                   </h3>
 
                   <div className="mt-6 flex flex-wrap gap-x-12 gap-y-4">
@@ -272,7 +292,7 @@ export function LoansList({ borrower, lender, status, emptyMessage }: LoansListP
                         Liquidity
                       </div>
                       <p className="text-body font-bold text-slate-900 dark:text-slate-100">
-                        {loan.remaining && loan.remaining !== "0" ? formatEther(loan.remaining) : formatEther(loan.principal)} CTC
+                        {formatUsdc(loan.remaining && loan.remaining !== "0" ? loan.remaining : loan.principal)} USDC
                       </p>
                     </div>
                   </div>
@@ -313,7 +333,7 @@ export function LoansList({ borrower, lender, status, emptyMessage }: LoansListP
                         e.preventDefault();
                         setSelectedLoan(loan);
                         setConfirmAction("fund");
-                        setFundAmount(formatEther((loan.remaining && loan.remaining !== "0") ? loan.remaining : loan.principal));
+                        setFundAmount(formatUsdc((loan.remaining && loan.remaining !== "0") ? loan.remaining : loan.principal));
                         setFundError(null);
                         setConfirmOpen(true);
                       }}
@@ -363,8 +383,8 @@ export function LoansList({ borrower, lender, status, emptyMessage }: LoansListP
         title={confirmAction === "fund" ? "Confirm funding" : "Confirm repayment"}
         description={
           confirmAction === "fund"
-            ? `Fund loan ${selectedLoan ? formatAddress(selectedLoan.borrower) : ""} for ${selectedLoan ? formatEther(selectedLoan.principal) : ""
-            } CTC?`
+            ? `Fund loan ${selectedLoan ? formatAddress(selectedLoan.borrower) : ""} for ${selectedLoan ? formatUsdc(selectedLoan.principal) : ""
+            } USDC?`
             : `Repay loan ${selectedLoan ? formatAddress(selectedLoan.borrower) : ""}?`
         }
         confirmLabel={confirmAction === "fund" ? "Fund" : "Repay"}
@@ -380,13 +400,11 @@ export function LoansList({ borrower, lender, status, emptyMessage }: LoansListP
           setConfirmOpen(false);
           try {
             if (confirmAction === "fund") {
-              const numeric = Number(fundAmount);
-              const remainingWei = selectedLoan?.remaining ?? selectedLoan.principal;
-              const remainingDecimal = Number(formatEther(remainingWei));
-              if (isNaN(numeric) || numeric <= 0) throw new Error("Invalid amount");
-              if (numeric > remainingDecimal) throw new Error("Amount exceeds remaining funding needed");
+              const amountWei = parseUsdc(fundAmount);
+              const remainingUnits = BigInt(selectedLoan.remaining ?? selectedLoan.principal);
+              if (amountWei <= BigInt(0)) throw new Error("Enter an amount greater than 0 USDC.");
+              if (amountWei > remainingUnits) throw new Error("Amount exceeds remaining funding needed.");
 
-              const amountWei = parseEther(fundAmount || formatEther(selectedLoan.principal)).toString();
               await fundLoan(selectedLoan.id, amountWei);
               setToast({ message: `Funded loan ${formatAddress(selectedLoan.borrower)}`, type: "success" });
             } else {
@@ -407,35 +425,40 @@ export function LoansList({ borrower, lender, status, emptyMessage }: LoansListP
       >
         {confirmAction === "fund" && (
           <div className="mb-4">
-            <label className="text-small text-slate-600 dark:text-slate-400">Amount to fund (CTC)</label>
+            <label className="text-small text-slate-600 dark:text-slate-400">Amount to fund (USDC)</label>
             <input
               className="mt-1 w-full rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-4 py-2 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all"
               value={fundAmount}
               onChange={(e) => {
                 setFundAmount(e.target.value);
-                const val = Number(e.target.value);
                 if (!selectedLoan) return;
-                const rem = Number(formatEther(selectedLoan.remaining ?? selectedLoan.principal));
-                if (isNaN(val) || val <= 0) {
+                try {
+                  const value = parseUsdc(e.target.value);
+                  const remaining = BigInt(selectedLoan.remaining ?? selectedLoan.principal);
+                  if (value <= BigInt(0)) {
+                    setFundError("Enter an amount greater than 0 USDC");
+                  } else if (value > remaining) {
+                    setFundError("Amount exceeds remaining required");
+                  } else {
+                    setFundError(null);
+                  }
+                } catch {
                   setFundError("Enter an amount greater than 0");
-                } else if (val > rem) {
-                  setFundError("Amount exceeds remaining required");
-                } else {
-                  setFundError(null);
                 }
               }}
               placeholder="0.0"
               type="number"
               min="0"
-              step="any"
+              step="0.000001"
             />
-            <p className="text-small text-slate-400 mt-2">Available for funding: {selectedLoan ? formatEther(selectedLoan.remaining ?? selectedLoan.principal) : "—"} CTC</p>
+            <p className="text-small text-slate-400 mt-2">Available for funding: {selectedLoan ? formatUsdc(selectedLoan.remaining ?? selectedLoan.principal) : "—"} USDC</p>
             {fundError && <p className="text-small text-red-500 mt-1 font-medium">{fundError}</p>}
           </div>
         )}
       </ConfirmModal>
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      <TransactionNotice transaction={transaction} />
     </motion.div>
   );
 }

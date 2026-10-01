@@ -31,11 +31,13 @@ export default function ReputationPage() {
 
     useEffect(() => {
         let mounted = true;
+        setScore(null);
         const load = async () => {
             if (!isConnected || !address) {
                 setLoading(false);
                 return;
             }
+            setLoading(true);
             try {
                 const s = await fetchCreditScore(address);
                 if (mounted) setScore(s);
@@ -93,7 +95,7 @@ export default function ReputationPage() {
                             Trust & <span className="text-gradient-primary">Reputation</span>
                         </h1>
                         <p className="mt-2 text-body text-slate-600 dark:text-slate-400">
-                            Your verifiable Creditcoin identity across the decentralized web.
+                            Your verifiable on-chain identity across the decentralized web.
                         </p>
                     </motion.div>
 

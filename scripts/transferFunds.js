@@ -7,7 +7,7 @@
 const { ethers } = require("ethers");
 
 async function main() {
-  const RPC = process.env.CREDITCOIN_TESTNET_RPC || process.env.RPC || "https://rpc.cc3-testnet.creditcoin.network";
+  const RPC = process.env.ARC_RPC_URL || "https://rpc.mainnet.arc.io";
   const compromisedKey = process.env.PRIVATE_KEY;
   const newPk = process.env.NEW_PRIVATE_KEY;
   const destAddr = process.env.DESTINATION_ADDRESS || (newPk ? (new ethers.Wallet(newPk)).address : undefined);
@@ -38,7 +38,7 @@ async function main() {
   const gasPrice = feeData.maxFeePerGas ?? feeData.gasPrice;
 
   if (!gasPrice) {
-    console.error("Unable to determine gas price from provider. Set CREDITCOIN_TESTNET_RPC to a valid node.");
+    console.error("Unable to determine gas price from provider. Set ARC_RPC_URL to a reachable Arc RPC.");
     process.exit(1);
   }
 

@@ -89,43 +89,24 @@ function TrustMesh() {
 
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.85 }}
+      initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
-      transition={{ duration: 1, ease: easeCustom, delay: 0.3 }}
+      transition={{ duration: 0.8, ease: easeCustom, delay: 0.2 }}
       className="relative w-full max-w-[420px] mx-auto select-none"
     >
-      {/* Ambient glow blobs */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <div className="absolute w-56 h-56 rounded-full bg-primary-500/20 dark:bg-primary-500/25 blur-[72px] animate-pulse-glow" />
-        <div className="absolute w-36 h-36 rounded-full bg-accent-500/15 dark:bg-accent-500/20 blur-[48px]"
-          style={{ transform: "translate(40px, -30px)" }} />
-      </div>
-
       <svg viewBox="0 0 400 400" className="w-full h-full relative z-10" fill="none" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <radialGradient id="nodeGrad" cx="50%" cy="30%" r="70%">
-            <stop offset="0%" stopColor="hsl(217,91%,70%)" />
-            <stop offset="100%" stopColor="hsl(217,91%,50%)" />
+            <stop offset="0%" stopColor="#1FA774" />
+            <stop offset="100%" stopColor="#123C3A" />
           </radialGradient>
           <radialGradient id="nodeGradAccent" cx="50%" cy="30%" r="70%">
-            <stop offset="0%" stopColor="hsl(188,94%,65%)" />
-            <stop offset="100%" stopColor="hsl(188,94%,45%)" />
+            <stop offset="0%" stopColor="#7DE2B1" />
+            <stop offset="100%" stopColor="#1FA774" />
           </radialGradient>
-          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="blur" />
-            <feFlood floodColor="hsl(217,91%,60%)" floodOpacity="0.6" result="color" />
-            <feComposite in="color" in2="blur" operator="in" result="shadow" />
-            <feMerge><feMergeNode in="shadow" /><feMergeNode in="SourceGraphic" /></feMerge>
-          </filter>
-          <filter id="glowAccent" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur in="SourceAlpha" stdDeviation="3" result="blur" />
-            <feFlood floodColor="hsl(188,94%,55%)" floodOpacity="0.5" result="color" />
-            <feComposite in="color" in2="blur" operator="in" result="shadow" />
-            <feMerge><feMergeNode in="shadow" /><feMergeNode in="SourceGraphic" /></feMerge>
-          </filter>
           <linearGradient id="edgeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="hsl(217,91%,60%)" stopOpacity="0.5" />
-            <stop offset="100%" stopColor="hsl(188,94%,52%)" stopOpacity="0.3" />
+            <stop offset="0%" stopColor="#1FA774" stopOpacity="0.4" />
+            <stop offset="100%" stopColor="#7DE2B1" stopOpacity="0.2" />
           </linearGradient>
         </defs>
 
@@ -151,8 +132,8 @@ function TrustMesh() {
             <motion.circle
               key={`pulse-${i}-${tick}`}
               r="3"
-              fill="hsl(188,94%,62%)"
-              filter="url(#glowAccent)"
+              fill="#7DE2B1"
+              cx={na.cx} cy={na.cy} opacity={0.9}
               initial={{ cx: na.cx, cy: na.cy, opacity: 0.9 }}
               animate={{ cx: nb.cx, cy: nb.cy, opacity: 0 }}
               transition={{ duration: 1.2, delay: i * 0.35, ease: "easeIn" }}
@@ -165,43 +146,46 @@ function TrustMesh() {
           <motion.g key={node.id}>
             <motion.circle
               cx={node.cx} cy={node.cy} r={node.r + 6}
-              fill="hsl(217,91%,60%)"
-              opacity={0.07}
+              initial={{ r: node.r + 6 }}
+              fill="#1FA774"
+              opacity={0.06}
               animate={{ r: [node.r + 6, node.r + 10, node.r + 6] }}
               transition={{ duration: 3 + i * 0.5, repeat: Infinity, ease: "easeInOut", delay: i * 0.3 }}
             />
             <circle
               cx={node.cx} cy={node.cy} r={node.r}
-              fill="hsl(222,47%,8%)"
-              stroke="hsl(217,91%,60%)"
+              fill="#0B1F26"
+              stroke="#1FA774"
               strokeWidth="1.2"
               strokeOpacity="0.5"
             />
             <motion.circle
               cx={node.cx} cy={node.cy} r={node.r * 0.45}
-              fill="hsl(217,91%,65%)"
-              filter="url(#glow)"
+              fill="#7DE2B1"
+              opacity={0.5}
+              initial={{ opacity: 0.5 }}
               animate={{ opacity: [0.5, 1, 0.5] }}
               transition={{ duration: 2 + i * 0.4, repeat: Infinity, delay: i * 0.25 }}
             />
           </motion.g>
         ))}
 
-        {/* Central node — pulsing shield */}
-        <motion.g filter="url(#glow)">
+        {/* Central node — trust shield */}
+        <motion.g>
           {/* Outer ring */}
           <motion.circle
             cx={200} cy={200} r={40}
-            fill="hsl(217,91%,60%)"
+            initial={{ r: 40 }}
+            fill="#1FA774"
             opacity={0.08}
-            animate={{ r: [40, 50, 40] }}
+            animate={{ r: [40, 48, 40] }}
             transition={{ duration: 3.5, repeat: Infinity, ease: "easeInOut" }}
           />
           {/* Middle ring */}
-          <circle cx={200} cy={200} r={34} fill="hsl(222,47%,8%)" stroke="hsl(217,91%,60%)" strokeWidth="1.5" strokeOpacity="0.7" />
+          <circle cx={200} cy={200} r={34} fill="#0B1F26" stroke="#1FA774" strokeWidth="1.5" strokeOpacity="0.8" />
           {/* Core */}
-          <circle cx={200} cy={200} r={28} fill="url(#nodeGrad)" opacity={0.9} />
-          {/* Shield icon path — simplified */}
+          <circle cx={200} cy={200} r={28} fill="url(#nodeGrad)" opacity={0.95} />
+          {/* Shield icon */}
           <path
             d="M200 186 C200 186 190 190 190 198 L190 204 C190 209 195 214 200 216 C205 214 210 209 210 204 L210 198 C210 190 200 186 200 186Z"
             fill="white"
@@ -214,11 +198,11 @@ function TrustMesh() {
           animate={{ y: [-3, 3, -3] }}
           transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
         >
-          <rect x="135" y="240" width="84" height="28" rx="14" fill="hsl(222,47%,8%)" stroke="hsl(188,94%,52%)" strokeWidth="1" strokeOpacity="0.6" />
-          <text x="177" y="253" textAnchor="middle" dominantBaseline="middle" fill="hsl(188,94%,62%)" fontSize="9" fontWeight="700" fontFamily="Inter, system-ui, sans-serif" letterSpacing="0.5">
+          <rect x="135" y="240" width="84" height="28" rx="14" fill="#0B1F26" stroke="#7DE2B1" strokeWidth="1" strokeOpacity="0.8" />
+          <text x="177" y="253" textAnchor="middle" dominantBaseline="middle" fill="#7DE2B1" fontSize="9" fontWeight="700" fontFamily="Inter, system-ui, sans-serif" letterSpacing="0.5">
             SCORE: 847
           </text>
-          <circle cx="147" cy="254" r="5" fill="hsl(188,94%,52%)" opacity="0.8" />
+          <circle cx="147" cy="254" r="5" fill="#1FA774" opacity={0.9} />
         </motion.g>
       </svg>
     </motion.div>
@@ -320,10 +304,10 @@ export default function HomePage() {
       {/* Global ambient background */}
       <div className="fixed inset-0 -z-10 bg-background" />
       <div
-        className="fixed inset-0 -z-10 opacity-50 dark:opacity-70"
+        className="fixed inset-0 -z-10 opacity-40 dark:opacity-60"
         style={{
-          background: `radial-gradient(ellipse 80% 50% at 50% -10%, hsl(var(--primary) / 0.12), transparent),
-                       radial-gradient(ellipse 60% 40% at 80% 80%, hsl(var(--accent) / 0.08), transparent)`,
+          background: `radial-gradient(ellipse 70% 40% at 50% -5%, rgba(31, 167, 116, 0.08), transparent),
+                       radial-gradient(ellipse 50% 30% at 85% 75%, rgba(18, 60, 58, 0.06), transparent)`,
         }}
       />
 
@@ -355,20 +339,20 @@ export default function HomePage() {
               <motion.div variants={itemVariants}>
                 <div className="inline-flex items-center gap-2 rounded-full border border-primary-500/25 dark:border-primary-400/20 bg-primary-500/8 dark:bg-primary-400/10 px-4 py-1.5 text-caption font-semibold uppercase tracking-widest text-primary-600 dark:text-primary-400 mb-6">
                   <Zap className="size-3" strokeWidth={2.5} />
-                  Built on Creditcoin L1
+                  Built on Arc Mainnet
                 </div>
               </motion.div>
 
               {/* Headline */}
               <motion.h1
                 variants={itemVariants}
-                className="text-[2.6rem] font-extrabold leading-[1.1] tracking-tight text-gray-900 dark:text-white sm:text-[3.5rem] xl:text-[4.25rem]"
+                className="text-[2.6rem] font-extrabold leading-[1.1] tracking-tight text-brand-text dark:text-white sm:text-[3.5rem] xl:text-[4.25rem]"
               >
                 Your Reputation.{" "}
                 <span
                   className="inline-block bg-clip-text text-transparent"
                   style={{
-                    backgroundImage: "linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--accent)) 100%)",
+                    backgroundImage: "linear-gradient(135deg, #1FA774 0%, #7DE2B1 100%)",
                   }}
                 >
                   Your Credit.
@@ -382,15 +366,15 @@ export default function HomePage() {
                 variants={itemVariants}
                 className="mt-6 max-w-lg text-body-lg leading-relaxed text-gray-600 dark:text-gray-400"
               >
-                CredTrust transforms your on-chain transaction history into a portable, trust-based credit profile — letting you borrow and lend globally without borders or collateral walls.
+                CredTrust Arc transforms your on-chain transaction history into a portable, trust-based credit profile — letting you borrow and lend globally without borders or collateral walls.
               </motion.p>
 
               {/* CTAs */}
-              <motion.div variants={itemVariants} className="mt-10 flex flex-wrap items-center gap-4">
+              <motion.div variants={itemVariants} className="mt-10 flex flex-wrap items-center gap-3.5">
                 <Link href="/loans/create">
                   <Button
                     size="lg"
-                    className="group h-13 gap-2 rounded-full px-8 text-[15px] font-semibold shadow-glow-primary transition-all duration-300 hover:shadow-glow-primary hover:scale-[1.02]"
+                    className="group h-12 gap-2 rounded-full bg-[#1FA774] hover:bg-[#18885e] text-white px-7 text-[15px] font-semibold shadow-md shadow-emerald-600/20 transition-all duration-200 hover:scale-[1.01]"
                   >
                     Request a Loan
                     <ArrowRight className="size-4 transition-transform duration-200 group-hover:translate-x-1" strokeWidth={2.5} />
@@ -400,9 +384,18 @@ export default function HomePage() {
                   <Button
                     variant="secondary"
                     size="lg"
-                    className="h-13 rounded-full px-8 text-[15px] font-semibold dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
+                    className="h-12 rounded-full border border-border/70 px-7 text-[15px] font-semibold text-brand-text hover:bg-surface-secondary dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
                   >
                     Browse Market
+                  </Button>
+                </Link>
+                <Link href="/dashboard">
+                  <Button
+                    variant="ghost"
+                    size="lg"
+                    className="h-12 rounded-full px-5 text-[15px] font-semibold text-brand-muted hover:text-brand-text dark:text-gray-300 dark:hover:text-white"
+                  >
+                    Open App &rarr;
                   </Button>
                 </Link>
               </motion.div>
@@ -482,7 +475,7 @@ export default function HomePage() {
               </div>
               <h2 className="text-h1 font-extrabold tracking-tight text-gray-900 dark:text-white">
                 Traditional credit is{" "}
-                <span className="bg-clip-text text-transparent" style={{ backgroundImage: "linear-gradient(135deg, #ef4444, #f97316)" }}>
+                <span className="text-[#DC2626] dark:text-[#F87171]">
                   broken.
                 </span>
               </h2>
@@ -531,7 +524,7 @@ export default function HomePage() {
               <div
                 className="absolute inset-0"
                 style={{
-                  background: "linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(188,94%,35%) 100%)",
+                  background: "linear-gradient(135deg, #0B1F26 0%, #123C3A 100%)",
                 }}
               />
               <div className="absolute inset-0 opacity-10"
@@ -544,9 +537,9 @@ export default function HomePage() {
                   <div className="mb-4 inline-block rounded-full border border-white/20 px-4 py-1.5 text-caption font-semibold uppercase tracking-widest text-white/80">
                     The Solution
                   </div>
-                  <h3 className="text-h2 font-extrabold text-white">The CredTrust Protocol</h3>
+                  <h3 className="text-h2 font-extrabold text-white">The CredTrust Arc Protocol</h3>
                   <p className="mt-4 text-body leading-relaxed text-white/80">
-                    By leveraging Creditcoin&apos;s L1 infrastructure, we turn repayment history into a portable, on-chain reputation asset you own forever.
+                    By leveraging Arc Mainnet settlement, we turn repayment history into a portable, on-chain reputation asset you own forever.
                   </p>
                 </div>
                 <ul className="space-y-4">
@@ -569,7 +562,7 @@ export default function HomePage() {
       </section>
 
       {/* ── FEATURES ── */}
-      <section className="section-border-top py-24 sm:py-32">
+      <section id="features" className="section-border-top py-24 sm:py-32">
         <div className="mx-auto max-w-container-xl px-4 sm:px-6 lg:px-8">
           <RevealSection>
             <div className="mx-auto mb-16 max-w-2xl text-center">
@@ -578,7 +571,7 @@ export default function HomePage() {
               </div>
               <h2 className="text-h1 font-extrabold tracking-tight text-gray-900 dark:text-white">
                 Built for the{" "}
-                <span className="bg-clip-text text-transparent" style={{ backgroundImage: "linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)))" }}>
+                <span className="bg-clip-text text-transparent" style={{ backgroundImage: "linear-gradient(135deg, #1FA774, #7DE2B1)" }}>
                   next billion
                 </span>
               </h2>
@@ -627,7 +620,7 @@ export default function HomePage() {
       </section>
 
       {/* ── HOW IT WORKS ── */}
-      <section className="section-border-top py-24 sm:py-32 bg-surface/30 dark:bg-surface/20">
+      <section id="how-it-works" className="section-border-top py-24 sm:py-32 bg-surface/30 dark:bg-surface/20">
         <div className="mx-auto max-w-container-xl px-4 sm:px-6 lg:px-8">
           <RevealSection>
             <div className="mx-auto mb-16 max-w-2xl text-center">
@@ -635,7 +628,7 @@ export default function HomePage() {
                 How It Works
               </div>
               <h2 className="text-h1 font-extrabold tracking-tight text-gray-900 dark:text-white">
-                Simple as <span className="bg-clip-text text-transparent" style={{ backgroundImage: "linear-gradient(135deg, hsl(var(--accent)), hsl(var(--primary)))" }}>1, 2, 3</span>
+                Simple as <span className="bg-clip-text text-transparent" style={{ backgroundImage: "linear-gradient(135deg, #1FA774, #7DE2B1)" }}>1, 2, 3</span>
               </h2>
             </div>
           </RevealSection>
@@ -645,7 +638,7 @@ export default function HomePage() {
             <div className="absolute inset-x-0 top-10 hidden h-px bg-gradient-to-r from-transparent via-border to-transparent md:block" />
 
             {[
-              { step: "01", icon: Wallet, title: "Connect Wallet", desc: "Link your Web3 wallet to establish your on-chain identity on the Creditcoin network." },
+                  { step: "01", icon: Wallet, title: "Connect Wallet", desc: "Link your EVM wallet to establish your on-chain identity on Arc Mainnet." },
               { step: "02", icon: TrendingUp, title: "Build Reputation", desc: "Borrow, repay, and grow your credit score organically through real on-chain behaviour." },
               { step: "03", icon: Zap, title: "Access Capital", desc: "Unlock loans globally backed by your reputation — not your real-world assets." },
             ].map((step, i) => (
@@ -681,7 +674,7 @@ export default function HomePage() {
           </RevealSection>
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {[
-              { name: "Amara O.", role: "DeFi Entrepreneur, Lagos", quote: "CredTrust gave me access to capital that no traditional bank in my country would offer. My on-chain score speaks for itself.", rating: 5 },
+              { name: "Amara O.", role: "DeFi Entrepreneur, Lagos", quote: "CredTrust Arc gave me access to capital that no traditional bank in my country would offer. My on-chain score speaks for itself.", rating: 5 },
               { name: "David T.", role: "Independent Lender, Berlin", quote: "The reputation system is incredibly transparent. I can lend with confidence — all the data is right there on the blockchain.", rating: 5 },
               { name: "Sofia R.", role: "Freelance Developer, São Paulo", quote: "I repaid my first loan in 30 days and my credit score jumped significantly. Real incentives for responsible behaviour.", rating: 5 },
             ].map((t, i) => (
@@ -724,11 +717,11 @@ export default function HomePage() {
           </RevealSection>
           <div className="space-y-4">
             {[
-              { q: "Is collateral required to borrow?", a: "No. CredTrust uses your on-chain repayment history and reputation score as the basis for lending — no physical collateral required." },
-              { q: "How is my credit score calculated?", a: "Your score is computed from your wallet's repayment history, loan volume, timeliness, and overall on-chain activity recorded on the Creditcoin blockchain." },
+              { q: "Is collateral required to borrow?", a: "No. CredTrust Arc uses your on-chain repayment history and reputation score as the basis for lending — no physical collateral required." },
+                  { q: "How is my credit score calculated?", a: "Your score is computed from your wallet's repayment history, loan volume, timeliness, and overall on-chain activity recorded on Arc Mainnet." },
               { q: "Can I lose my credit score?", a: "Yes — defaulting on a loan will negatively impact your reputation score. This creates strong incentives to repay, making the system trustworthy for lenders." },
-              { q: "What network does CredTrust run on?", a: "CredTrust is built on the Creditcoin L1 network, purpose-built for credit history and loan settlement." },
-              { q: "Are smart contracts audited?", a: "All CredTrust smart contracts are open-source and undergo independent security audits. You can review them directly on-chain." },
+                  { q: "What network does CredTrust Arc run on?", a: "CredTrust Arc runs on Arc Mainnet, with USDC used for loan settlement." },
+              { q: "Are smart contracts audited?", a: "All CredTrust Arc smart contracts are open-source and undergo independent security audits. You can review them directly on-chain." },
             ].map((faq, i) => (
               <FAQItem key={i} question={faq.q} answer={faq.a} delay={i * 0.06} />
             ))}
@@ -745,12 +738,12 @@ export default function HomePage() {
               <div
                 className="absolute inset-0 -z-0"
                 style={{
-                  background: "linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(188,94%,30%) 100%)",
+                  background: "linear-gradient(135deg, #0B1F26 0%, #123C3A 100%)",
                 }}
               />
-              {/* Decorative orbs */}
-              <div className="absolute top-0 -right-20 h-64 w-64 rounded-full bg-white/10 blur-3xl" />
-              <div className="absolute bottom-0 -left-20 h-48 w-48 rounded-full bg-white/10 blur-3xl" />
+              {/* Decorative accent highlight */}
+              <div className="absolute top-0 -right-20 h-64 w-64 rounded-full bg-emerald-500/10 blur-3xl pointer-events-none" />
+              <div className="absolute bottom-0 -left-20 h-48 w-48 rounded-full bg-teal-500/10 blur-3xl pointer-events-none" />
               <div className="relative z-10">
                 <h2 className="text-h1 font-extrabold text-white">
                   Start building your<br className="hidden sm:block" /> financial reputation today.
@@ -762,7 +755,7 @@ export default function HomePage() {
                   <Link href="/loans/create">
                     <Button
                       size="lg"
-                      className="h-13 rounded-full bg-white px-8 text-[15px] font-bold text-primary-600 shadow-glow-primary hover:bg-white/90 hover:scale-[1.02] transition-all duration-200"
+                      className="h-12 rounded-full bg-[#1FA774] hover:bg-[#18885e] px-8 text-[15px] font-bold text-white shadow-md shadow-emerald-600/20 hover:scale-[1.01] transition-all duration-200"
                     >
                       Request a Loan
                       <ArrowRight className="ml-2 size-4" strokeWidth={2.5} />
@@ -772,7 +765,7 @@ export default function HomePage() {
                     <Button
                       size="lg"
                       variant="secondary"
-                      className="h-13 rounded-full border-white/30 bg-white/10 px-8 text-[15px] font-semibold text-white hover:bg-white/20"
+                      className="h-12 rounded-full border border-white/20 bg-white/10 px-8 text-[15px] font-semibold text-white hover:bg-white/15"
                     >
                       Browse Lending Market
                     </Button>
@@ -789,7 +782,7 @@ export default function HomePage() {
         <div className="mx-auto max-w-container-xl px-4 py-12 sm:px-6 lg:px-8">
           <div className="grid grid-cols-2 gap-8 md:grid-cols-4">
             <div className="col-span-2 md:col-span-1">
-              <div className="text-h4 font-extrabold tracking-tight text-gray-900 dark:text-white">CredTrust</div>
+              <div className="text-h4 font-extrabold tracking-tight text-gray-900 dark:text-white">CredTrust Arc</div>
               <p className="mt-2 text-small leading-relaxed text-gray-500 dark:text-gray-400">
                 On-chain credit for the borderless economy.
               </p>
@@ -797,8 +790,17 @@ export default function HomePage() {
             <div>
               <h4 className="mb-4 text-caption font-bold uppercase tracking-widest text-gray-400">Protocol</h4>
               <ul className="space-y-2">
-                {["Browse Loans", "Request Loan", "Dashboard", "Docs"].map((l) => (
-                  <li key={l}><a href="#" className="text-small text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">{l}</a></li>
+                {[
+                  { name: "Browse Marketplace", href: "/loans" },
+                  { name: "Request a Loan", href: "/loans/create" },
+                  { name: "Lend & Earn", href: "/earn" },
+                  { name: "Reputation Score", href: "/reputation" },
+                ].map((l) => (
+                  <li key={l.name}>
+                    <Link href={l.href} className="text-small text-brand-muted hover:text-brand-text dark:text-gray-400 dark:hover:text-white transition-colors">
+                      {l.name}
+                    </Link>
+                  </li>
                 ))}
               </ul>
             </div>
@@ -820,8 +822,8 @@ export default function HomePage() {
             </div>
           </div>
           <div className="mt-10 flex flex-col items-center justify-between gap-4 border-t border-border/40 pt-8 sm:flex-row">
-            <p className="text-caption text-gray-400">© {new Date().getFullYear()} CredTrust. All rights reserved.</p>
-            <p className="text-caption text-gray-400">Built on <span className="font-semibold text-primary-500 dark:text-primary-400">Creditcoin</span></p>
+            <p className="text-caption text-gray-400">© {new Date().getFullYear()} CredTrust Arc. All rights reserved.</p>
+                <p className="text-caption text-gray-400">Built on <span className="font-semibold text-primary-500 dark:text-primary-400">Arc Mainnet</span></p>
           </div>
         </div>
       </footer>

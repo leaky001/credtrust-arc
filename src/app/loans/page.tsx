@@ -114,7 +114,7 @@ export default function LoansPage() {
           >
             <h3 className="text-h4 font-bold text-slate-900 dark:text-white">How Liquidity Flows</h3>
             <p className="mx-auto mt-2 max-w-lg text-small text-slate-500 dark:text-slate-400">
-              Transactions are secured by the Creditcoin 3.0 protocol. Collateral is reputation-weighted,
+              Transactions are settled in USDC on Arc Mainnet. Collateral is reputation-weighted,
               ensuring that borrowers with high trust scores access the best rates.
             </p>
             <Link href="/docs" className="mt-4 inline-flex items-center gap-2 text-small font-bold text-primary-500 hover:text-primary-400 transition-colors">

@@ -10,9 +10,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { isConnected } = useWallet();
 
-  // Hide sidebar on landing page (/) if not connected
+  // Hide sidebar on landing page (/)
   const isLandingPage = pathname === "/";
-  const showSidebar = !isLandingPage || isConnected;
+  const showSidebar = !isLandingPage;
 
   return (
     <div className="min-h-screen bg-background transition-colors duration-500">

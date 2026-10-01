@@ -13,13 +13,22 @@ export function CreditScoreCard() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
+        let mounted = true;
         if (address) {
+            setLoading(true);
+            setScore(null);
             fetchCreditScore(address)
-                .then(setScore)
-                .finally(() => setLoading(false));
+                .then(s => {
+                    if (mounted) setScore(s);
+                })
+                .finally(() => {
+                    if (mounted) setLoading(false);
+                });
         } else {
+            setScore(null);
             setLoading(false);
         }
+        return () => { mounted = false; };
     }, [address, fetchCreditScore]);
 
     const getScoreInfo = (s: number) => {

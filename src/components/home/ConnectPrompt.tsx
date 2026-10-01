@@ -24,15 +24,7 @@ export function ConnectPrompt() {
       </Button>
       {!hasWallet && (
         <p className="text-small text-gray-500">
-          Install MetaMask from{" "}
-          <a
-            href="https://metamask.io/download"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary-600 underline hover:text-primary-700"
-          >
-            metamask.io
-          </a>
+          Install or enable an EVM-compatible wallet extension.
         </p>
       )}
       {error && (

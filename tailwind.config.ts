@@ -17,15 +17,32 @@ const config: Config = {
     extend: {
       colors: {
         primary: {
-          400: "hsla(217, 91%, 60%, 1)",
+          50: "#F0FDF8",
+          100: "#DCFCE7",
+          200: "#BBF7D0",
+          300: "#7DE2B1",
+          400: "#34D399",
           500: "hsl(var(--primary))",
-          600: "hsla(217, 91%, 50%, 1)",
-          700: "hsla(217, 91%, 40%, 1)",
+          600: "#1FA774",
+          700: "#123C3A",
+          800: "#0E2F2D",
+          900: "#0B1F26",
         },
         accent: {
-          400: "hsla(188, 94%, 52%, 1)",
+          300: "#A7F3D0",
+          400: "#7DE2B1",
           500: "hsl(var(--accent))",
-          600: "hsla(188, 94%, 42%, 1)",
+          600: "#1FA774",
+          700: "#123C3A",
+        },
+        brand: {
+          deep: "#0B1F26",
+          teal: "#123C3A",
+          emerald: "#1FA774",
+          mint: "#7DE2B1",
+          warm: "#F7F8F5",
+          text: "#102A2A",
+          muted: "#6B7C78",
         },
         gray: {
           50: "hsl(210 40% 98%)",
@@ -76,8 +93,8 @@ const config: Config = {
         "elevation-2": "0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05)",
         "elevation-3": "0 10px 15px -3px rgb(0 0 0 / 0.05)",
         "elevation-4": "0 20px 25px -5px rgb(0 0 0 / 0.05)",
-        "glow-primary": "0 0 32px -6px rgb(59 130 246 / 0.5)",
-        "glow-accent": "0 0 32px -6px rgb(6 182 212 / 0.45)",
+        "glow-primary": "0 4px 20px -2px rgba(31, 167, 116, 0.22)",
+        "glow-accent": "0 4px 20px -2px rgba(125, 226, 177, 0.22)",
       },
       animation: {
         "float": "float 6s ease-in-out infinite",

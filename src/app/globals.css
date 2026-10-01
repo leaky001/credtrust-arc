@@ -5,27 +5,31 @@
 /* ── 1. CSS Custom Properties ──────────────────────────────────────── */
 @layer base {
   :root {
-    --background: 210 40% 98%;
-    --foreground: 222 47% 11%;
+    --background: 80 16.7% 96.5%; /* #F7F8F5 */
+    --foreground: 180 45.3% 11.4%; /* #102A2A */
     --surface: 0 0% 100%;
-    --surface-secondary: 210 40% 96.1%;
-    --border: 214.3 31.8% 91.4%;
-    --text-main: 222.2 47.4% 11.2%;
-    --text-muted: 215.4 16.3% 46.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --accent: 188.7 94.5% 42.7%;
+    --surface-secondary: 80 10% 94%;
+    --border: 165.9 15% 85%;
+    --text-main: 180 45.3% 11.4%; /* #102A2A */
+    --text-muted: 165.9 7.5% 45.1%; /* #6B7C78 */
+    --primary: 195.6 55.4% 9.8%; /* #0B1F26 */
+    --secondary: 177.1 53.8% 15.3%; /* #123C3A */
+    --accent: 157.5 68.6% 38.8%; /* #1FA774 */
+    --highlight: 151 62.1% 68.8%; /* #7DE2B1 */
   }
 
   .dark {
-    --background: 222 47% 2%;
-    --foreground: 210 40% 98%;
-    --surface: 222 47% 5%;
-    --surface-secondary: 222 47% 3%;
-    --border: 217.2 32.6% 12%;
-    --text-main: 210 40% 98%;
-    --text-muted: 215 20.2% 55%;
-    --primary: 217.2 91.2% 59.8%;
-    --accent: 188.7 94.5% 52.7%;
+    --background: 195.6 55.4% 7%; /* Darker than #0B1F26 */
+    --foreground: 80 16.7% 96.5%; /* #F7F8F5 */
+    --surface: 195.6 55.4% 9.8%; /* #0B1F26 */
+    --surface-secondary: 177.1 53.8% 15.3%; /* #123C3A */
+    --border: 165.9 15% 25%;
+    --text-main: 80 16.7% 96.5%; /* #F7F8F5 */
+    --text-muted: 165.9 7.5% 65.1%; /* Lighter #6B7C78 */
+    --primary: 157.5 68.6% 38.8%; /* #1FA774 */
+    --secondary: 177.1 53.8% 25.3%; 
+    --accent: 151 62.1% 68.8%; /* #7DE2B1 */
+    --highlight: 151 62.1% 88.8%;
   }
 }
 
@@ -85,10 +89,11 @@
 @layer utilities {
 
   /* Gradient text */
-  .gradient-text-primary {
+  .gradient-text-primary,
+  .text-gradient-primary {
     background-image: linear-gradient(135deg,
-        hsl(221.2 83.2% 53.3%),
-        hsl(188.7 94.5% 42.7%));
+        #1FA774,
+        #7DE2B1);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -100,9 +105,9 @@
     border-top: 1px solid hsl(var(--border));
   }
 
-  /* Text glow */
+  /* Text glow (subtle, non-neon) */
   .text-glow-primary {
-    text-shadow: 0 0 24px rgb(59 130 246 / 0.5);
+    text-shadow: 0 0 16px rgba(31, 167, 116, 0.25);
   }
 }
 

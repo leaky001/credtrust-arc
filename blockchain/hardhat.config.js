@@ -1,17 +1,17 @@
-require("dotenv").config({ path: [".env.local", ".env"] });
+require("dotenv").config({ path: ["../.env.local", "../.env"] });
 require("@nomicfoundation/hardhat-toolbox");
+const path = require("path");
 
-/** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
   solidity: "0.8.24",
+  paths: {
+    root: path.resolve(__dirname, ".."),
+    sources: "contracts",
+    tests: "test",
+    cache: path.resolve(__dirname, "cache"),
+    artifacts: path.resolve(__dirname, "artifacts"),
+  },
   networks: {
-    hardhat: {
-      chainId: 31337,
-    },
-    localhost: {
-      url: "http://127.0.0.1:8545",
-      chainId: 31337,
-    },
     arc_mainnet: {
       url: process.env.ARC_RPC_URL || "https://rpc.mainnet.arc.io",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],

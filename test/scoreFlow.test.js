@@ -1,51 +1,32 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
-describe("Integration: scoring flow", function () {
-  it("creates a loan, funds it, repays it, and updates credit score", async function () {
+const usdc = (amount) => ethers.parseUnits(amount, 6);
+
+describe("USDC reputation integration", function () {
+  it("creates, funds, disburses, and repays a USDC loan with a score update", async function () {
     const [borrower, lender] = await ethers.getSigners();
-
-    // Deploy factory as borrower
+    const Token = await ethers.getContractFactory("MockUSDC");
+    const token = await Token.deploy();
     const Factory = await ethers.getContractFactory("LoanFactory", borrower);
-    const factory = await Factory.deploy();
-    await factory.waitForDeployment?.();
-    // For backwards compatibility, ensure deployed
-    if (factory.deployTransaction) await factory.deployed();
+    const factory = await Factory.deploy(await token.getAddress());
 
-    const creditScoreAddr = await factory.getCreditScore();
-    expect(creditScoreAddr).to.properAddress;
+    await token.mint(await borrower.getAddress(), usdc("1000"));
+    await token.mint(await lender.getAddress(), usdc("1000"));
+    await factory.connect(borrower).createLoan(usdc("1"), 7);
+    const loan = await ethers.getContractAt("Loan", await factory.getLoan(0));
 
-    // Create loan: principal 1 ether, interest 5% (500 bps), duration 1 day
-    const principal = ethers.parseEther("1");
-    const interestBps = 500; // 5%
-    const durationDays = 1;
+    await token.connect(lender).approve(await loan.getAddress(), usdc("1"));
+    await loan.connect(lender).fund(usdc("1"));
+    expect(await token.balanceOf(await borrower.getAddress())).to.equal(usdc("1001"));
 
-  const tx = await factory.connect(borrower).createLoan(principal, durationDays);
-  await tx.wait();
+    const repayment = await loan.getTotalRepayment();
+    await token.connect(borrower).approve(await loan.getAddress(), repayment);
+    await loan.connect(borrower).repay();
 
-  // loanId can be retrieved from factory.loanCount() - 1
-  const loanCount = await factory.loanCount();
-  const loanId = Number(loanCount) - 1;
-  const loanAddr = await factory.getLoan(loanId);
-    expect(loanAddr).to.properAddress;
-
-    // Lender funds the loan by sending principal
-    const Loan = await ethers.getContractFactory("Loan", lender);
-    const loan = Loan.attach(loanAddr).connect(lender);
-    const fundTx = await loan.connect(lender).fund({ value: principal });
-    await fundTx.wait();
-
-    const loanBorrower = Loan.attach(loanAddr).connect(borrower);
-    
-    // Contract calculates dynamically
-    const actualTotal = await loanBorrower.getTotalRepayment();
-    const repayTx = await loanBorrower.repay({ value: actualTotal });
-    await repayTx.wait();
-
-    // Check credit score increased (> BASE_SCORE = 500)
-    const CreditScore = await ethers.getContractFactory("CreditScore", borrower);
-    const creditScore = CreditScore.attach(creditScoreAddr);
-    const score = await creditScore.getScore(await borrower.getAddress());
-    expect(Number(score)).to.be.greaterThan(500);
+    expect(await loan.status()).to.equal(3n);
+    const score = await (await ethers.getContractAt("CreditScore", await factory.getCreditScore()))
+      .getScore(await borrower.getAddress());
+    expect(score).to.equal(540n);
   });
 });

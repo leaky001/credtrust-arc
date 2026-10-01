@@ -21,7 +21,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Toast, ToastType } from "@/components/ui/Toast";
 import { useWallet } from "@/contexts/WalletContext";
 import { useLoans } from "@/hooks/useLoans";
-import { formatEther } from "ethers";
+import { formatUsdc } from "@/lib/usdc";
+import { TransactionNotice } from "@/components/ui/TransactionNotice";
 import type { Loan } from "@/types/loan";
 
 const containerVariants = {
@@ -60,7 +61,8 @@ export default function LoanDetailPage() {
     fundLoan,
     repayLoan,
     markDefaulted,
-    actionLoading
+    actionLoading,
+    transaction,
   } = useLoans();
 
   const [loan, setLoan] = useState<(Loan & { totalRepayment: string }) | null>(null);
@@ -97,7 +99,7 @@ export default function LoanDetailPage() {
     if (!loan) return;
     try {
       const amount = loan.remaining && loan.remaining !== "0" ? loan.remaining : loan.principal;
-      await fundLoan(loan.id, amount);
+      await fundLoan(loan.id, BigInt(amount));
       setToast({ message: "Loan funded successfully!", type: "success" });
       // Refresh data
       const updated = await fetchLoanDetails(loan.id);
@@ -165,6 +167,7 @@ export default function LoanDetailPage() {
       {toast && (
         <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
       )}
+      <TransactionNotice transaction={transaction} />
 
       {/* Navigation & Header */}
       <motion.div variants={itemVariants} className="mb-8 flex flex-wrap items-center justify-between gap-4">
@@ -196,8 +199,8 @@ export default function LoanDetailPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle className="text-h2 font-bold text-slate-900 dark:text-white flex items-baseline gap-2">
-                      <span className="text-glow-primary">{formatEther(loan.principal)}</span>
-                      <span className="text-h4 text-slate-500">CTC</span>
+                      <span className="text-glow-primary">{formatUsdc(loan.principal)}</span>
+                      <span className="text-h4 text-slate-500">USDC</span>
                     </CardTitle>
                     <p className="mt-2 text-small text-slate-500 dark:text-slate-400 flex items-center gap-4">
                       <span className="flex items-center gap-1.5"><Clock className="size-3.5" /> {loan.duration} days</span>
@@ -209,7 +212,7 @@ export default function LoanDetailPage() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="pt-8 pt-10">
+              <CardContent className="pt-10">
                 <div className="grid grid-cols-1 gap-10 sm:grid-cols-2">
                   <div className="space-y-1.5">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">Borrower Address</p>
@@ -257,7 +260,7 @@ export default function LoanDetailPage() {
                         <CreditCard className="size-4" />
                       </div>
                       <span className="text-body text-slate-900 dark:text-slate-200 font-bold">
-                        {formatEther(loan.totalRepayment)} CTC
+                        {formatUsdc(loan.totalRepayment)} USDC
                       </span>
                     </div>
                   </div>
@@ -276,7 +279,7 @@ export default function LoanDetailPage() {
                           Lender Opportunity
                         </h4>
                         <p className="text-small text-slate-600 dark:text-slate-400 leading-relaxed max-w-lg">
-                          Funding this loan transfers <span className="text-slate-900 dark:text-slate-200 font-bold">{formatEther(loan.principal)} CTC</span> to the borrower. You will receive <span className="text-primary-500 font-bold">{formatEther(loan.totalRepayment)} CTC</span> upon completion.
+                          Funding this loan transfers <span className="text-slate-900 dark:text-slate-200 font-bold">{formatUsdc(loan.principal)} USDC</span> to the borrower. You will receive <span className="text-primary-500 font-bold">{formatUsdc(loan.totalRepayment)} USDC</span> upon completion.
                         </p>
                       </div>
                       <div className="flex flex-col gap-3">
@@ -307,7 +310,7 @@ export default function LoanDetailPage() {
                           Repayment Due
                         </h4>
                         <p className="text-small text-slate-600 dark:text-slate-400 leading-relaxed">
-                          Your loan is active. Ensure you repay the total <span className="font-bold text-slate-900 dark:text-white">{formatEther(loan.totalRepayment)} CTC</span> before the deadline to protect your Credit Reputation.
+                          Your loan is active. Ensure you repay the total <span className="font-bold text-slate-900 dark:text-white">{formatUsdc(loan.totalRepayment)} USDC</span> before the deadline to protect your Credit Reputation.
                         </p>
                       </div>
                       <Button
@@ -317,7 +320,7 @@ export default function LoanDetailPage() {
                         onClick={handleRepay}
                         loading={actionLoading}
                       >
-                        Repay Full Amount ({formatEther(loan.totalRepayment)} CTC)
+                        Repay Full Amount ({formatUsdc(loan.totalRepayment)} USDC)
                       </Button>
                     </div>
                   )}
@@ -440,7 +443,7 @@ export default function LoanDetailPage() {
                   <div className="p-1.5 rounded-md bg-white/10">
                     <ShieldCheck className="size-4 text-primary-400" />
                   </div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-primary-400">CredTrust Reputation</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-primary-400">CredTrust Arc Reputation</p>
                 </div>
 
                 <div className="mt-2 flex items-baseline gap-2">

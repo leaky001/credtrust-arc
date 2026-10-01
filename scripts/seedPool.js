@@ -27,10 +27,17 @@ async function main() {
 
   const Pool = await hre.ethers.getContractAt("LendingPool", poolAddress);
   
-  const amountToSeed = hre.ethers.parseEther("5"); // 5 CTC
-  console.log(`Depositing ${hre.ethers.formatEther(amountToSeed)} CTC into the pool for instant funding...`);
+  const usdcAddress = process.env.ARC_USDC_ADDRESS || process.env.NEXT_PUBLIC_ARC_USDC_ADDRESS;
+  if (!usdcAddress) throw new Error("Set ARC_USDC_ADDRESS to the configured USDC contract.");
+  const amountToSeed = hre.ethers.parseUnits("5", 6);
+  const token = await hre.ethers.getContractAt(
+    ["function approve(address spender, uint256 amount) returns (bool)"],
+    usdcAddress,
+  );
+  console.log(`Approving and depositing ${hre.ethers.formatUnits(amountToSeed, 6)} USDC...`);
 
-  const tx = await Pool.deposit({ value: amountToSeed });
+  await (await token.approve(poolAddress, amountToSeed)).wait();
+  const tx = await Pool.deposit(amountToSeed);
   await tx.wait();
 
   console.log("✅ Successfully seeded the LendingPool!");

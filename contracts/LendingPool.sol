@@ -1,74 +1,81 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./Loan.sol";
-import "./CreditScore.sol";
 
 /**
  * @title LendingPool
- * @notice A professional liquidity pool vault where lenders deposit CTC to earn interest
+ * @notice A USDC liquidity pool where lenders deposit to earn interest
  * and borrowers draw instant liquidity.
  */
-contract LendingPool {
+contract LendingPool is ReentrancyGuard {
+    using SafeERC20 for IERC20;
+
     string public constant name = "CredTrust Liquidity Vault";
-    
+
+    IERC20 public immutable usdc;
     uint256 public totalShares;
     mapping(address => uint256) public shares;
-    
+    uint256 public totalReceivables;
+    mapping(address => uint256) public loanReceivables;
+
     address public factory;
-    ICreditScore public creditScore;
 
     event Deposited(address indexed user, uint256 amount, uint256 sharesMinted);
     event Withdrawn(address indexed user, uint256 amount, uint256 sharesBurned);
     event LoanFunded(address indexed loan, uint256 amount);
-    event InterestEarned(uint256 amount);
+    event LoanSettled(address indexed loan, uint256 amount);
 
     modifier onlyFactory() {
         require(msg.sender == factory, "Only factory can fund loans");
         _;
     }
 
-    constructor(address _factory, address _creditScore) {
+    constructor(address _factory, address _usdc) {
         factory = _factory;
-        creditScore = ICreditScore(_creditScore);
+        require(_usdc != address(0), "Invalid USDC address");
+        usdc = IERC20(_usdc);
     }
 
     /**
-     * @notice Deposit CTC into the pool to earn interest
+     * @notice Deposit USDC into the pool to earn interest
      */
-    function deposit() external payable {
-        require(msg.value > 0, "Deposit must be > 0");
-        
+    function deposit(uint256 amount) external nonReentrant {
+        require(amount > 0, "Deposit must be > 0");
+
+        uint256 assetsBefore = totalAssets();
+        usdc.safeTransferFrom(msg.sender, address(this), amount);
         uint256 sharesToMint;
         if (totalShares == 0) {
-            sharesToMint = msg.value;
+            sharesToMint = amount;
         } else {
-            // shares = deposit * (totalShares / totalBalanceBefore)
-            uint256 poolBalanceBefore = address(this).balance - msg.value;
-            sharesToMint = (msg.value * totalShares) / poolBalanceBefore;
+            require(assetsBefore > 0, "Invalid pool value");
+            sharesToMint = (amount * totalShares) / assetsBefore;
         }
+        require(sharesToMint > 0, "Deposit too small");
 
         shares[msg.sender] += sharesToMint;
         totalShares += sharesToMint;
 
-        emit Deposited(msg.sender, msg.value, sharesToMint);
+        emit Deposited(msg.sender, amount, sharesToMint);
     }
 
     /**
-     * @notice Withdraw CTC and earned interest from the pool
-     * @param sharesToBurn Number of shares to convert back to CTC
+     * @notice Withdraw USDC and earned interest from the pool
+     * @param sharesToBurn Number of shares to convert back to USDC
      */
-    function withdraw(uint256 sharesToBurn) external {
+    function withdraw(uint256 sharesToBurn) external nonReentrant {
         require(sharesToBurn > 0 && shares[msg.sender] >= sharesToBurn, "Invalid shares");
 
-        // amount = sharesToBurn * (totalBalance / totalShares)
-        uint256 amountToWithdraw = (sharesToBurn * address(this).balance) / totalShares;
+        uint256 amountToWithdraw = (sharesToBurn * totalAssets()) / totalShares;
+        require(amountToWithdraw <= usdc.balanceOf(address(this)), "Insufficient liquid USDC");
 
         shares[msg.sender] -= sharesToBurn;
         totalShares -= sharesToBurn;
-
-        (bool sent, ) = msg.sender.call{value: amountToWithdraw}("");
-        require(sent, "Transfer failed");
+        usdc.safeTransfer(msg.sender, amountToWithdraw);
 
         emit Withdrawn(msg.sender, amountToWithdraw, sharesToBurn);
     }
@@ -77,32 +84,41 @@ contract LendingPool {
      * @notice Funds an approved loan request instantly from the pool
      * @param loanAddress The address of the Loan contract to fund
      */
-    function fundLoan(address payable loanAddress) external onlyFactory {
+    function fundLoan(address loanAddress) external onlyFactory nonReentrant {
         Loan loan = Loan(loanAddress);
         require(loan.status() == Loan.Status.Requested, "Loan not requestable");
-        
-        uint256 amount = loan.principal();
-        require(address(this).balance >= amount, "Insufficient pool liquidity");
 
-        // Call the fund function on the loan contract
-        loan.fund{value: amount}();
-        
+        uint256 amount = loan.principal();
+        require(usdc.balanceOf(address(this)) >= amount, "Insufficient pool liquidity");
+
+        usdc.safeTransfer(loanAddress, amount);
+        loan.fundFromPool(amount);
+        loanReceivables[loanAddress] = amount;
+        totalReceivables += amount;
+
         emit LoanFunded(loanAddress, amount);
     }
 
     /**
-     * @notice Returns the current value of a user's shares in CTC
+     * @notice Settle a registered pool-funded loan's receivable on repayment or default.
      */
-    function getBalanceOf(address user) external view returns (uint256) {
-        if (totalShares == 0) return 0;
-        return (shares[user] * address(this).balance) / totalShares;
+    function settleLoan(uint256 amount) external {
+        uint256 outstanding = loanReceivables[msg.sender];
+        require(outstanding > 0 && amount == outstanding, "Invalid loan settlement");
+        delete loanReceivables[msg.sender];
+        totalReceivables -= outstanding;
+        emit LoanSettled(msg.sender, amount);
+    }
+
+    function totalAssets() public view returns (uint256) {
+        return usdc.balanceOf(address(this)) + totalReceivables;
     }
 
     /**
-     * @notice Fallback to receive repayments from Loan contracts
+     * @notice Returns the current value of a user's shares in USDC base units
      */
-    receive() external payable {
-        // Any CTC sent here (from Loan repayments) naturally increases the share value
-        emit InterestEarned(msg.value);
+    function getBalanceOf(address user) external view returns (uint256) {
+        if (totalShares == 0) return 0;
+        return (shares[user] * totalAssets()) / totalShares;
     }
 }

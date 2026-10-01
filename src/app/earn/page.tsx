@@ -19,7 +19,8 @@ import { Input } from "@/components/ui/Input";
 import { Toast, ToastType } from "@/components/ui/Toast";
 import { useWallet } from "@/contexts/WalletContext";
 import { useLoans } from "@/hooks/useLoans";
-import { formatEther } from "ethers";
+import { formatUsdc } from "@/lib/usdc";
+import { TransactionNotice } from "@/components/ui/TransactionNotice";
 
 const containerVariants: Variants = {
     hidden: { opacity: 0 },
@@ -40,24 +41,32 @@ const itemVariants: Variants = {
 
 export default function EarnPage() {
     const { isConnected, address } = useWallet();
-    const { fetchPoolStats, depositToPool, withdrawFromPool, loading } = useLoans();
+    const { fetchPoolStats, fetchUsdcBalance, depositToPool, withdrawFromPool, loading, transaction } = useLoans();
 
     const [poolStats, setPoolStats] = useState<any>(null);
+    const [walletUsdcBalance, setWalletUsdcBalance] = useState("0");
     const [depositAmount, setDepositAmount] = useState("");
     const [withdrawShares, setWithdrawShares] = useState("");
     const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
     const [activeTab, setActiveTab] = useState<"deposit" | "withdraw">("deposit");
 
     const refreshStats = useCallback(async () => {
-        const stats = await fetchPoolStats();
+        const [stats, balance] = await Promise.all([
+            fetchPoolStats(),
+            address ? fetchUsdcBalance(address) : Promise.resolve("0"),
+        ]);
         setPoolStats(stats);
-    }, [fetchPoolStats]);
+        setWalletUsdcBalance(balance);
+    }, [address, fetchPoolStats, fetchUsdcBalance]);
 
     useEffect(() => {
-        if (isConnected) {
+        if (isConnected && address) {
             refreshStats();
+        } else {
+            setPoolStats(null);
+            setWalletUsdcBalance("0");
         }
-    }, [isConnected, refreshStats]);
+    }, [isConnected, address, refreshStats]);
 
     const handleDeposit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -95,6 +104,7 @@ export default function EarnPage() {
             {toast && (
                 <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
             )}
+            <TransactionNotice transaction={transaction} />
 
             <motion.div variants={itemVariants} className="flex flex-col gap-2 mb-12">
                 <h1 className="text-h2 font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-3">
@@ -102,7 +112,7 @@ export default function EarnPage() {
                     Lend & Earn
                 </h1>
                 <p className="max-w-2xl text-body text-slate-600 dark:text-slate-400">
-                    Provide liquidity back the CredTrust protocol and earn passive APY from borrower repayments globally. No manual matching required.
+                    Provide liquidity back the CredTrust Arc protocol and earn passive APY from borrower repayments globally. No manual matching required.
                 </p>
             </motion.div>
 
@@ -115,9 +125,9 @@ export default function EarnPage() {
                                 <p className="text-[10px] font-bold uppercase tracking-widest text-primary-600 dark:text-primary-400">Total Liquidity</p>
                                 <div className="mt-2 flex items-baseline gap-2">
                                     <span className="text-h3 font-bold text-slate-900 dark:text-white">
-                                        {poolStats ? Number(formatEther(poolStats.totalLiquidity)).toLocaleString() : "—"}
+                                        {poolStats ? formatUsdc(poolStats.totalLiquidity) : "—"}
                                     </span>
-                                    <span className="text-xs font-medium text-slate-500">CTC</span>
+                                    <span className="text-xs font-medium text-slate-500">USDC</span>
                                 </div>
                             </CardContent>
                         </Card>
@@ -137,9 +147,9 @@ export default function EarnPage() {
                                 <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Your Share Value</p>
                                 <div className="mt-2 flex items-baseline gap-2">
                                     <span className="text-h3 font-bold text-slate-900 dark:text-white">
-                                        {poolStats ? Number(formatEther(poolStats.userBalance)).toLocaleString() : "—"}
+                                        {poolStats ? formatUsdc(poolStats.userBalance) : "—"}
                                     </span>
-                                    <span className="text-xs font-medium text-slate-500">CTC</span>
+                                    <span className="text-xs font-medium text-slate-500">USDC</span>
                                 </div>
                             </CardContent>
                         </Card>
@@ -173,13 +183,14 @@ export default function EarnPage() {
                                 <form onSubmit={handleDeposit} className="space-y-8">
                                     <div className="space-y-4">
                                         <Input
-                                            label="Deposit Amount (CTC)"
+                                            label="Deposit Amount (USDC)"
                                             placeholder="0.00"
                                             type="number"
-                                            step="0.01"
+                                            step="0.000001"
                                             value={depositAmount}
                                             onChange={(e) => setDepositAmount(e.target.value)}
                                         />
+                                        <p className="text-xs text-slate-500">Wallet USDC balance: {formatUsdc(walletUsdcBalance)} USDC</p>
                                         <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-slate-500">
                                             <span>Protocol Fee: 0%</span>
                                             <span>Slippage Protection: 0.1%</span>
@@ -187,7 +198,7 @@ export default function EarnPage() {
                                     </div>
                                     <Button type="submit" size="lg" className="w-full py-6 glow-primary" loading={loading}>
                                         <ArrowUpRight className="size-4 mr-2" />
-                                        Approve & Deposit CTC
+                                        Approve & Deposit USDC
                                     </Button>
                                 </form>
                             ) : (

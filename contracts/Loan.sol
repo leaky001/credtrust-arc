@@ -1,16 +1,26 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
 interface ICreditScore {
     function recordRepayment(address user, uint256 principal, bool onTime) external;
     function recordDefault(address user, uint256 principal) external;
+}
+
+interface ILoanPool {
+    function settleLoan(uint256 amount) external;
 }
 
 /**
  * @title Loan
  * @notice Single loan agreement: Requested → Funded → Active → Repaid / Defaulted
  */
-contract Loan {
+contract Loan is ReentrancyGuard {
+    using SafeERC20 for IERC20;
+
     enum Status {
         Requested,
         Funded,
@@ -33,6 +43,8 @@ contract Loan {
     Status public status;
     address public factory;
     ICreditScore public creditScore;
+    IERC20 public immutable usdc;
+    address public immutable lendingPool;
 
     event LoanFunded(address indexed lender, uint256 amount);
     event LoanPartiallyFunded(address indexed lender, uint256 amount, uint256 remaining);
@@ -55,7 +67,9 @@ contract Loan {
         uint256 _interestRateBps,
         uint256 _durationDays,
         address _factory,
-        address _creditScore
+        address _creditScore,
+        address _usdc,
+        address _lendingPool
     ) {
         borrower = _borrower;
         principal = _principal;
@@ -63,67 +77,74 @@ contract Loan {
         durationDays = _durationDays;
         factory = _factory;
         creditScore = ICreditScore(_creditScore);
+        usdc = IERC20(_usdc);
+        lendingPool = _lendingPool;
         status = Status.Requested;
     }
 
-    function fund() external payable {
+    function fund(uint256 amount) external nonReentrant {
         require(status == Status.Requested, "Invalid status");
         require(msg.sender != borrower, "Borrower cannot fund own loan");
-        require(msg.value > 0, "No value sent");
+        require(amount > 0, "No value sent");
 
         uint256 remaining = principal - totalFunded;
-        uint256 amountToAccept = msg.value > remaining ? remaining : msg.value;
+        uint256 amountToAccept = amount > remaining ? remaining : amount;
+        usdc.safeTransferFrom(msg.sender, address(this), amountToAccept);
+        _recordFunding(msg.sender, amountToAccept);
+    }
 
-        if (contributions[msg.sender] == 0) {
-            lenders.push(msg.sender);
+    function fundFromPool(uint256 amount) external nonReentrant {
+        require(msg.sender == lendingPool, "Only lending pool");
+        require(status == Status.Requested && totalFunded == 0, "Invalid status");
+        require(amount == principal, "Incorrect funding amount");
+        _recordFunding(msg.sender, amount);
+    }
+
+    function _recordFunding(address funder, uint256 amount) internal {
+        require(status == Status.Requested, "Invalid status");
+
+        if (contributions[funder] == 0) {
+            lenders.push(funder);
         }
-        contributions[msg.sender] += amountToAccept;
-        totalFunded += amountToAccept;
+        contributions[funder] += amount;
+        totalFunded += amount;
 
         if (totalFunded == principal) {
             status = Status.Active;
             fundedAt = block.timestamp;
             repaymentDeadline = block.timestamp + (durationDays * 1 days);
-            emit LoanFunded(msg.sender, amountToAccept);
+            usdc.safeTransfer(borrower, principal);
+            emit LoanFunded(funder, amount);
         } else {
-            emit LoanPartiallyFunded(msg.sender, amountToAccept, principal - totalFunded);
-        }
-
-        // Refund excess if borrower sent more than needed to fill principal
-        if (msg.value > amountToAccept) {
-            uint256 excess = msg.value - amountToAccept;
-            (bool refund,) = msg.sender.call{value: excess}("");
-            require(refund, "Refund failed");
+            emit LoanPartiallyFunded(funder, amount, principal - totalFunded);
         }
     }
 
-    function repay() external payable onlyBorrower {
+    function repay() external onlyBorrower nonReentrant {
         require(status == Status.Active, "Invalid status");
 
         uint256 interest = (principal * interestRateBps) / 10000;
         uint256 total = principal + interest;
-        require(msg.value >= total, "Insufficient repayment");
+        usdc.safeTransferFrom(msg.sender, address(this), total);
 
         status = Status.Repaid;
         bool onTime = block.timestamp <= repaymentDeadline;
 
         creditScore.recordRepayment(borrower, principal, onTime);
 
-        // Distribute to all lenders
+        uint256 distributed;
         for (uint256 i = 0; i < lenders.length; i++) {
             address lender = lenders[i];
             uint256 share = contributions[lender];
-            uint256 lenderInterest = (share * interestRateBps) / 10000;
-            uint256 lenderTotal = share + lenderInterest;
-            
-            (bool sent,) = lender.call{value: lenderTotal}("");
-            require(sent, "Transfer failed to lender");
+            uint256 lenderTotal = i == lenders.length - 1
+                ? total - distributed
+                : share + (interest * share) / principal;
+            distributed += lenderTotal;
+            usdc.safeTransfer(lender, lenderTotal);
         }
 
-        uint256 excess = msg.value - total;
-        if (excess > 0) {
-            (bool refund,) = borrower.call{value: excess}("");
-            require(refund, "Refund failed");
+        if (contributions[lendingPool] > 0) {
+            ILoanPool(lendingPool).settleLoan(principal);
         }
 
         emit LoanRepaid(borrower, principal, interest);
@@ -131,7 +152,7 @@ contract Loan {
 
     uint256 public constant GRACE_PERIOD = 3 days;
 
-    function markDefaulted() external {
+    function markDefaulted() external nonReentrant {
         require(status == Status.Active, "Invalid status");
         
         if (msg.sender != factory) {
@@ -143,23 +164,29 @@ contract Loan {
         status = Status.Defaulted;
         creditScore.recordDefault(borrower, principal);
 
-        uint256 balance = address(this).balance;
+        uint256 balance = usdc.balanceOf(address(this));
+        uint256 distributed;
         if (balance > 0) {
-            // Distribute remaining balance across lenders proportionally
             for (uint256 i = 0; i < lenders.length; i++) {
                 address lender = lenders[i];
-                uint256 share = (contributions[lender] * balance) / principal;
+                uint256 share = i == lenders.length - 1
+                    ? balance - distributed
+                    : (contributions[lender] * balance) / principal;
                 if (share > 0) {
-                    (bool sent,) = lender.call{value: share}("");
-                    require(sent, "Transfer failed to lender");
+                    distributed += share;
+                    usdc.safeTransfer(lender, share);
                 }
             }
+        }
+
+        if (contributions[lendingPool] > 0) {
+            ILoanPool(lendingPool).settleLoan(principal);
         }
 
         emit LoanDefaulted(borrower);
     }
 
-    function getTotalRepayment() external view returns (uint256) {
+    function getTotalRepayment() public view returns (uint256) {
         uint256 interest = (principal * interestRateBps) / 10000;
         return principal + interest;
     }

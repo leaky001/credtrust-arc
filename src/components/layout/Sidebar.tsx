@@ -97,7 +97,7 @@ export function Sidebar() {
                     <ShieldCheck className="size-5 text-primary-500" />
                 </div>
                 <p className="text-[10px] font-bold uppercase tracking-wider text-primary-600 dark:text-primary-400">
-                    Creditcoin 3.0
+                    Arc Mainnet
                 </p>
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     Secured Network

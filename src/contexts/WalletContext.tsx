@@ -1,262 +1,440 @@
 "use client";
 
+/**
+ * WalletContext.tsx
+ *
+ * Multi-wallet connection context for CredTrust Arc.
+ *
+ * Key behaviours:
+ *  - connect() / switchWallet() open the wallet-picker modal — they do NOT
+ *    directly call eth_requestAccounts on a random provider.
+ *  - The user picks a specific wallet (MetaMask, Phantom, Coinbase, etc.) and
+ *    we connect to that provider only.
+ *  - disconnect() clears all React state AND sets a localStorage flag so that
+ *    auto-reconnect is suppressed across page reloads.
+ *  - On page load we only auto-reconnect if the user has NOT explicitly
+ *    disconnected (flag absent). We use eth_accounts (no popup) on the
+ *    previously selected provider only.
+ *  - accountsChanged and chainChanged events are scoped to the active provider.
+ *
+ * Nothing here touches smart contracts, Arc config, or .env.local.
+ */
+
 import {
   createContext,
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { BrowserProvider, type JsonRpcSigner } from "ethers";
+import {
+  detectEVMProviders,
+  hasAnyEVMProvider,
+  type WalletProviderInfo,
+} from "@/lib/walletProviders";
+import { ARC_CHAIN_ID, ARC_RPC_URL, ARC_EXPLORER_URL } from "@/lib/contracts/config";
 
-type WalletState = {
+// ── Storage key ────────────────────────────────────────────────────────────
+
+/**
+ * We use localStorage (survives page reload) rather than sessionStorage.
+ * When the user clicks Disconnect we set this flag so the next page load
+ * stays disconnected. Clicking Connect Wallet clears it.
+ */
+const DISCONNECTED_KEY = "credtrust_disconnected";
+/**
+ * Remembers which wallet provider was last connected so we can auto-reconnect
+ * the correct provider (not just window.ethereum).
+ * Value: one of "metamask" | "phantom" | "coinbase" | "generic"
+ */
+const LAST_WALLET_KEY = "credtrust_last_wallet";
+
+// ── Types ──────────────────────────────────────────────────────────────────
+
+type WalletContextValue = {
   address: string | null;
+  signer: JsonRpcSigner | null;
   isConnected: boolean;
   isConnecting: boolean;
+  connectingName: string | null;   // name of wallet currently being approved
   error: string | null;
-};
-
-type WalletContextValue = WalletState & {
-  connect: () => Promise<void>;
+  hasWallet: boolean;
+  pickerOpen: boolean;
+  /** Opens the wallet-picker modal (used by Connect Wallet & Switch Wallet) */
+  openPicker: () => void;
+  /** Closes the picker without connecting */
+  closePicker: () => void;
+  /** Called by the picker when the user selects a provider */
+  connectProvider: (info: WalletProviderInfo) => Promise<void>;
+  /** Disconnects the app session — does NOT call wallet.disconnect() */
   disconnect: () => void;
   switchNetwork: (chainId: string) => Promise<void>;
-  signer: JsonRpcSigner | null;
-  hasWallet: boolean;
+  /** Legacy alias kept for any callers that still use connect() */
+  connect: () => void;
+  /** Legacy alias kept for any callers that still use switchWallet() */
+  switchWallet: () => void;
 };
 
 const WalletContext = createContext<WalletContextValue | null>(null);
 
-// Note: we intentionally create a safe provider accessor inside the
-// WalletProvider so it can be referenced from hooks and included in
-// dependency arrays without triggering the React hooks linter.
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function isDisconnected(): boolean {
+  if (typeof window === "undefined") return false;
+  return localStorage.getItem(DISCONNECTED_KEY) === "true";
+}
+
+function markDisconnected() {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(DISCONNECTED_KEY, "true");
+  localStorage.removeItem(LAST_WALLET_KEY);
+}
+
+function clearDisconnected(walletIcon: string) {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(DISCONNECTED_KEY);
+  localStorage.setItem(LAST_WALLET_KEY, walletIcon);
+}
+
+function getLastWalletIcon(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(LAST_WALLET_KEY);
+}
+
+// ── Provider ───────────────────────────────────────────────────────────────
 
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [address, setAddress] = useState<string | null>(null);
   const [signer, setSigner] = useState<JsonRpcSigner | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [connectingName, setConnectingName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hasWallet, setHasWallet] = useState(false);
-  const [ethereum, setEthereum] = useState<any | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
-  // Safer window.ethereum proxy to avoid conflicts. Put inside the
-  // component and wrap with useCallback so it can be referenced from
-  // effects/callbacks and included in dependency arrays.
-  const getEthereumProvider = useCallback((): any => {
-    if (typeof window === "undefined") return null;
-    try {
-      const w = window as any;
-      const eth = w.ethereum;
-      if (!eth) return null;
+  // The currently active EVM provider (set on successful connection)
+  const activeProvider = useRef<any>(null);
 
-      // If multiple wallets are injected (e.g. MetaMask + Coinbase)
-      if (eth.providers?.length) {
-        const mm = eth.providers.find((p: any) => p?.isMetaMask);
-        return mm || eth.providers[0];
-      }
+  // ── Detect wallets on mount ──────────────────────────────────────────────
 
-      return eth;
-    } catch (err) {
-      // Some browser extensions may throw while trying to redefine or access
-      // `window.ethereum` (we've seen 'Cannot redefine property: ethereum').
-      // In that case, avoid crashing the app and report that no provider
-      // is currently available — callers will retry or surface a friendly
-      // error to the user.
-      // eslint-disable-next-line no-console
-      console.warn('Error accessing window.ethereum, will treat as no provider for now:', err);
-      return null;
-    }
-  }, []);
-
-  // Poll for an injected provider for a short window to avoid races with
-  // extensions that inject asynchronously. This prevents the app from
-  // showing a hard "no wallet" state while MetaMask is still initializing.
   useEffect(() => {
     let mounted = true;
     let attempts = 0;
     const maxAttempts = 8;
-    const delayMs = 500;
 
     const check = () => {
       attempts += 1;
-      try {
-        const eth = getEthereumProvider();
-        if (eth) {
-          if (!mounted) return;
-          setEthereum(eth);
-          setHasWallet(true);
-          return;
-        }
-      } catch (e) {
-        // ignored — getEthereumProvider already logs warnings
+      if (hasAnyEVMProvider()) {
+        if (mounted) setHasWallet(true);
+        return;
       }
-
       if (attempts < maxAttempts && mounted) {
-        setTimeout(check, delayMs);
+        setTimeout(check, 500);
       } else if (mounted) {
         setHasWallet(false);
       }
     };
 
     check();
+    return () => { mounted = false; };
+  }, []);
 
-    return () => {
-      mounted = false;
-    };
-  }, [getEthereumProvider]);
+  // ── Auto-reconnect on page load ──────────────────────────────────────────
+  // Only runs when: (a) user has NOT explicitly disconnected, AND
+  // (b) we can find the same wallet provider they used before.
 
-  // Auto-reconnect: silently restore previously connected wallet on page load.
-  // Uses eth_accounts (no popup) — only succeeds if user already approved the site.
   useEffect(() => {
-    if (!ethereum) return;
+    if (isDisconnected()) return;
+
+    const lastIcon = getLastWalletIcon();
+    if (!lastIcon) return;
+
     let cancelled = false;
-    (async () => {
+
+    const tryReconnect = async () => {
+      // Re-detect to get fresh provider references
+      const providers = detectEVMProviders();
+      if (!providers.length) return;
+
+      // Find the matching provider from last session
+      const match = providers.find((p) => p.icon === lastIcon) ?? providers[0];
+      if (!match) return;
+
       try {
-        const accounts = (await ethereum.request({ method: "eth_accounts" })) as string[];
+        const accounts = (await match.provider.request({
+          method: "eth_accounts",
+        })) as string[];
+
         if (cancelled || !accounts?.[0]) return;
-        const browserProvider = new BrowserProvider(ethereum);
+
+        const chainIdHex = await match.provider.request({ method: "eth_chainId" });
+        if (parseInt(chainIdHex, 16) !== ARC_CHAIN_ID) {
+            // Wait for user interaction to switch network, don't auto-switch silently
+            return;
+        }
+
+        const browserProvider = new BrowserProvider(match.provider);
         const signerInstance = await browserProvider.getSigner();
+
+        if (cancelled) return;
+
+        activeProvider.current = match.provider;
         setAddress(accounts[0]);
         setSigner(signerInstance);
       } catch {
-        // Silent — user simply isn't connected yet
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [ethereum]);
-
-
-
-  const connect = useCallback(async () => {
-    const ethereum = getEthereumProvider();
-    if (!ethereum) {
-      setError("No wallet found. Install MetaMask from metamask.io");
-      return;
-    }
-
-    setIsConnecting(true);
-    setError(null);
-
-    const attempt = async (): Promise<void> => {
-      try {
-        const accounts = (await ethereum.request({
-          method: "eth_requestAccounts",
-        })) as string[] | undefined;
-
-        if (!accounts?.[0]) {
-          setError("No accounts returned. Unlock MetaMask and try again.");
-          return;
-        }
-
-        const browserProvider = new BrowserProvider(ethereum);
-        const signerInstance = await browserProvider.getSigner();
-
-        setAddress(accounts[0]);
-        setSigner(signerInstance);
-      } catch (err: any) {
-        // Handle "Request already pending" or other internal errors
-        if (err.code === -32002) {
-          setError("Connection request already pending in MetaMask. Please check your extension.");
-        } else if (err.code === -32603 || (err.message && String(err.message).includes('Internal JSON-RPC error'))) {
-          // MetaMask sometimes surfaces -32603 when the wallet backend (or local node)
-          // returns an internal error. Surface a friendly hint to the user.
-          setError("Wallet RPC error: Internal JSON-RPC error. Ensure your node (e.g. Hardhat) is running and MetaMask is connected to the correct network.");
-        } else {
-          throw err;
-        }
+        // Silent — user simply isn't authorized on this provider yet
       }
     };
 
-    try {
-      await attempt();
-    } catch (err: any) {
-      const raw = err.message || String(err);
-      const isRejected = raw.includes("reject") || raw.includes("denied") || raw.includes("User denied");
-
-      if (isRejected) {
-        setError("Connection cancelled. Click Connect again when ready.");
-      } else {
-        setError(raw);
-        setAddress(null);
-        setSigner(null);
-      }
-    } finally {
-      setIsConnecting(false);
-    }
-  }, [getEthereumProvider]);
-
-  const disconnect = useCallback(() => {
-    setAddress(null);
-    setSigner(null);
-    setError(null);
+    // Give extensions 600 ms to inject before trying
+    const timer = setTimeout(tryReconnect, 600);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, []);
 
-  useEffect(() => {
-    const eth = ethereum || getEthereumProvider();
-    if (!eth?.on) return;
+  // ── Event listeners on the active provider ────────────────────────────────
 
-    const handleAccountsChanged = (accounts: any) => {
-      if (!accounts || accounts.length === 0) disconnect();
-      else setAddress(accounts[0]);
+  useEffect(() => {
+    const provider = activeProvider.current;
+    if (!provider?.on) return;
+
+    const handleAccountsChanged = async (accounts: string[]) => {
+      if (!accounts || accounts.length === 0) {
+        // Wallet locked or account removed — treat as disconnect
+        markDisconnected();
+        activeProvider.current = null;
+        setAddress(null);
+        setSigner(null);
+        setError(null);
+      } else {
+        // Account switched inside the same wallet — update
+        setAddress(accounts[0]);
+        try {
+          const bp = new BrowserProvider(provider);
+          const s = await bp.getSigner();
+          setSigner(s);
+        } catch {
+          setSigner(null);
+        }
+      }
     };
 
     const handleChainChanged = () => {
+      // Reload to avoid stale contract state — same as before
       window.location.reload();
     };
 
-    eth.on("accountsChanged", handleAccountsChanged);
-    eth.on("chainChanged", handleChainChanged);
+    provider.on("accountsChanged", handleAccountsChanged);
+    provider.on("chainChanged", handleChainChanged);
 
     return () => {
-      eth.removeListener?.("accountsChanged", handleAccountsChanged);
-      eth.removeListener?.("chainChanged", handleChainChanged);
+      provider.removeListener?.("accountsChanged", handleAccountsChanged);
+      provider.removeListener?.("chainChanged", handleChainChanged);
     };
-  }, [disconnect, ethereum, getEthereumProvider]);
+  }, [address]); // re-bind when address changes (covers signer recreation)
+
+  // ── Picker controls ───────────────────────────────────────────────────────
+
+  const openPicker = useCallback(() => {
+    setError(null);
+    setPickerOpen(true);
+  }, []);
+
+  const closePicker = useCallback(() => {
+    if (!isConnecting) setPickerOpen(false);
+  }, [isConnecting]);
+
+  // ── Connect to a specific provider ────────────────────────────────────────
+
+  const connectProvider = useCallback(async (info: WalletProviderInfo) => {
+    setError(null);
+    setIsConnecting(true);
+    setConnectingName(info.name);
+
+    try {
+      const accounts = (await info.provider.request({
+        method: "eth_requestAccounts",
+      })) as string[] | undefined;
+
+      if (!accounts?.[0]) {
+        setError("No accounts returned. Unlock your wallet and try again.");
+        return;
+      }
+      
+      // Ensure we are on Arc Mainnet
+      const chainIdHex = await info.provider.request({ method: "eth_chainId" });
+      const targetChainHex = `0x${ARC_CHAIN_ID.toString(16)}`;
+      
+      if (parseInt(chainIdHex, 16) !== ARC_CHAIN_ID) {
+          try {
+            await info.provider.request({
+              method: "wallet_switchEthereumChain",
+              params: [{ chainId: targetChainHex }],
+            });
+          } catch (switchError: any) {
+            if (switchError.code === 4902) {
+              try {
+                await info.provider.request({
+                  method: "wallet_addEthereumChain",
+                  params: [
+                    {
+                      chainId: targetChainHex,
+                      chainName: "Arc Mainnet",
+                      rpcUrls: [ARC_RPC_URL],
+                      blockExplorerUrls: [ARC_EXPLORER_URL],
+                      nativeCurrency: { name: "USD Coin", symbol: "USDC", decimals: 6 },
+                    },
+                  ],
+                });
+              } catch (addError) {
+                setError("Failed to add Arc Mainnet to wallet.");
+                return;
+              }
+            } else {
+              setError("Failed to switch to Arc Mainnet.");
+              return;
+            }
+          }
+          
+          // Verify it switched successfully
+          const newChainIdHex = await info.provider.request({ method: "eth_chainId" });
+          if (parseInt(newChainIdHex, 16) !== ARC_CHAIN_ID) {
+              setError("Wallet is not on Arc Mainnet.");
+              return;
+          }
+      }
+
+      const browserProvider = new BrowserProvider(info.provider);
+      const signerInstance = await browserProvider.getSigner();
+
+      activeProvider.current = info.provider;
+      clearDisconnected(info.icon);
+
+      setAddress(accounts[0]);
+      setSigner(signerInstance);
+      setPickerOpen(false);
+    } catch (err: any) {
+      const raw: string = err?.message ?? String(err);
+
+      if (err?.code === -32002) {
+        setError(
+          "A connection request is already pending. Check your " +
+            info.name +
+            " extension."
+        );
+      } else if (
+        raw.toLowerCase().includes("reject") ||
+        raw.toLowerCase().includes("denied") ||
+        err?.code === 4001
+      ) {
+        setError("Connection cancelled. Select a wallet to try again.");
+      } else if (err?.code === -32603) {
+        setError(
+          "Internal wallet error. Make sure " +
+            info.name +
+            " is connected to Arc Mainnet."
+        );
+      } else {
+        setError(raw.slice(0, 120));
+      }
+    } finally {
+      setIsConnecting(false);
+      setConnectingName(null);
+    }
+  }, []);
+
+  // ── Disconnect ────────────────────────────────────────────────────────────
+
+  const disconnect = useCallback(() => {
+    // Remove listeners from the current provider before releasing it
+    const provider = activeProvider.current;
+    if (provider?.removeAllListeners) {
+      try { provider.removeAllListeners(); } catch { /* ignore */ }
+    }
+
+    markDisconnected();
+    activeProvider.current = null;
+
+    setAddress(null);
+    setSigner(null);
+    setError(null);
+    setPickerOpen(false);
+  }, []);
+
+  // ── Network switch ────────────────────────────────────────────────────────
 
   const switchNetwork = useCallback(async (chainId: string) => {
-    const ethereum = getEthereumProvider();
-    if (!ethereum) throw new Error("No wallet found");
+    const provider = activeProvider.current;
+    if (!provider) throw new Error("No wallet connected");
 
     const hexChainId = `0x${Number(chainId).toString(16)}`;
     try {
-      await ethereum.request({
+      await provider.request({
         method: "wallet_switchEthereumChain",
         params: [{ chainId: hexChainId }],
       });
     } catch (switchError: any) {
-      // Error 4902 means the chain has not been added to MetaMask.
       if (switchError.code === 4902) {
         try {
-          await ethereum.request({
+          await provider.request({
             method: "wallet_addEthereumChain",
             params: [
               {
                 chainId: hexChainId,
-                chainName: chainId === "31337" ? "Hardhat Local" : "Creditcoin Testnet",
-                rpcUrls: chainId === "31337" ? ["http://127.0.0.1:8545"] : ["https://rpc.cc3-testnet.creditcoin.network"],
-                nativeCurrency: { name: "Creditcoin", symbol: "CTC", decimals: 18 },
+                chainName: chainId === "31337" ? "Hardhat Local" : "Arc Mainnet",
+                rpcUrls:
+                  chainId === "31337"
+                    ? ["http://127.0.0.1:8545"]
+                    : ["https://rpc.mainnet.arc.io"],
+                blockExplorerUrls:
+                  chainId === "31337" ? undefined : ["https://explorer.arc.io"],
+                nativeCurrency:
+                  chainId === "31337"
+                    ? { name: "Ether", symbol: "ETH", decimals: 18 }
+                    : { name: "USD Coin", symbol: "USDC", decimals: 6 },
               },
             ],
           });
-        } catch (addError) {
+        } catch {
           throw new Error("Failed to add network to wallet");
         }
       } else {
         throw new Error(switchError.message || "Failed to switch network");
       }
     }
-  }, [getEthereumProvider]);
+  }, []);
+
+  // ── Legacy aliases (kept for existing callers) ────────────────────────────
+
+  /** connect() now opens the picker instead of directly connecting */
+  const connect = useCallback(() => { openPicker(); }, [openPicker]);
+
+  /** switchWallet() opens the picker to let the user pick a different wallet */
+  const switchWallet = useCallback(() => { openPicker(); }, [openPicker]);
+
+  // ── Context value ─────────────────────────────────────────────────────────
 
   const value: WalletContextValue = {
     address,
+    signer,
     isConnected: !!address,
     isConnecting,
+    connectingName,
     error,
-    connect,
+    hasWallet,
+    pickerOpen,
+    openPicker,
+    closePicker,
+    connectProvider,
     disconnect,
     switchNetwork,
-    signer,
-    hasWallet,
+    connect,
+    switchWallet,
   };
 
   return (
@@ -264,10 +442,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// ── Hook ───────────────────────────────────────────────────────────────────
+
 export function useWallet() {
   const ctx = useContext(WalletContext);
-  if (!ctx) {
-    throw new Error("useWallet must be used within WalletProvider");
-  }
+  if (!ctx) throw new Error("useWallet must be used within WalletProvider");
   return ctx;
 }

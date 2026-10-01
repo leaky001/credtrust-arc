@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./Loan.sol";
 import "./CreditScore.sol";
 import "./LendingPool.sol";
@@ -13,39 +14,52 @@ contract LoanFactory {
     Loan[] public loans;
     CreditScore public creditScore;
     LendingPool public lendingPool;
+    IERC20 public immutable usdc;
 
     event LoanCreated(uint256 indexed loanId, address indexed borrower, uint256 principal, uint256 interestRateBps, uint256 durationDays);
 
-    constructor() {
+    constructor(address usdcAddress) {
+        require(usdcAddress != address(0), "Invalid USDC address");
+        usdc = IERC20(usdcAddress);
         creditScore = new CreditScore(address(this));
-        lendingPool = new LendingPool(address(this), address(creditScore));
+        lendingPool = new LendingPool(address(this), usdcAddress);
     }
 
     function createLoan(
         uint256 principal,
         uint256 durationDays
     ) external returns (uint256 loanId) {
+        return _createLoan(msg.sender, principal, durationDays);
+    }
+
+    function _createLoan(
+        address borrower,
+        uint256 principal,
+        uint256 durationDays
+    ) internal returns (uint256 loanId) {
         require(principal > 0, "Zero principal");
         require(durationDays >= 1 && durationDays <= 365, "Invalid duration");
 
-        uint256 interestRateBps = creditScore.calculateInterestRate(msg.sender);
+        uint256 interestRateBps = creditScore.calculateInterestRate(borrower);
 
         Loan loan = new Loan(
-            msg.sender,
+            borrower,
             principal,
             interestRateBps,
             durationDays,
             address(this),
-            address(creditScore)
+            address(creditScore),
+            address(usdc),
+            address(lendingPool)
         );
 
         loanId = loans.length;
         loans.push(loan);
 
         creditScore.addApprovedLoan(address(loan));
-        creditScore.recordLoanRequest(msg.sender, principal);
+        creditScore.recordLoanRequest(borrower, principal);
 
-        emit LoanCreated(loanId, msg.sender, principal, interestRateBps, durationDays);
+        emit LoanCreated(loanId, borrower, principal, interestRateBps, durationDays);
     }
 
     function getLoan(uint256 loanId) external view returns (address) {
@@ -81,12 +95,10 @@ contract LoanFactory {
         uint256 principal,
         uint256 durationDays
     ) external returns (uint256 loanId) {
-        // 1. Create the loan (re-using createLoan logic for consistency)
-        loanId = this.createLoan(principal, durationDays);
+        loanId = _createLoan(msg.sender, principal, durationDays);
         address loanAddr = address(loans[loanId]);
 
-        // 2. Fund it instantly from the pool
-        lendingPool.fundLoan(payable(loanAddr));
+        lendingPool.fundLoan(loanAddr);
     }
 
     function getLendingPool() external view returns (address) {

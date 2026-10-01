@@ -9,8 +9,9 @@
     "lint": "next lint",
     "compile": "hardhat compile",
     "test:contracts": "hardhat test",
+    "check:arc": "node scripts/checkArcChainId.js",
     "deploy:local": "hardhat run scripts/deploy.js --network localhost",
-    "deploy:testnet": "hardhat run scripts/deploy.js --network creditcoin_testnet"
+    "deploy:arc": "hardhat run scripts/deploy.js --network arc_mainnet"
   },
   "dependencies": {
     "@fontsource/inter": "^5.0.0",

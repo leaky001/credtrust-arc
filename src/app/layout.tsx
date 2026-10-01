@@ -8,9 +8,9 @@ import { Layout } from "@/components/layout/Layout";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "CredTrust — Decentralised Credit & Micro-Lending",
+  title: "CredTrust Arc — Decentralised Credit & Lending on Arc",
   description:
-    "Reputation-based lending on Creditcoin. Access capital without heavy collateral.",
+    "CredTrust Arc is a decentralized credit reputation and lending platform built on Arc Mainnet. Borrow and lend USDC using on-chain reputation — no collateral required.",
 };
 
 export default function RootLayout({
@@ -43,7 +43,7 @@ export default function RootLayout({
                 var isExtError = function(msg) {
                   if (!msg) return false;
                   var lower = String(msg).toLowerCase();
-                  return lower.includes('failed to connect to metamask') ||
+                  return lower.includes('failed to connect to wallet') ||
                          lower.includes('nkbihfbeogaeaoehlefnkodbefgpgknn') ||
                          lower.includes('bfnaelmomeimhlpmgjnjophhpkkoljpa') ||
                          lower.includes('cannot redefine property: ethereum');

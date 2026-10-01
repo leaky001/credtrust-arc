@@ -47,7 +47,11 @@ contract CreditScore {
     }
 
     function getScore(address user) external view returns (uint256) {
-        return records[user].score == 0 ? BASE_SCORE : records[user].score;
+        UserRecord storage record = records[user];
+        if (record.completedLoans == 0 && record.defaults == 0) {
+            return BASE_SCORE;
+        }
+        return record.score;
     }
 
     function recordRepayment(
@@ -69,7 +73,7 @@ contract CreditScore {
         _updateScore(user);
     }
 
-    function recordLoanRequest(address user, uint256 principal) external onlyLoanFactory {
+    function recordLoanRequest(address user, uint256) external onlyLoanFactory {
         records[user].totalLoans += 1;
     }
 
@@ -77,14 +81,12 @@ contract CreditScore {
         UserRecord storage r = records[user];
         uint256 onTimeRate = r.completedLoans > 0
             ? (r.onTimeRepayments * 100) / r.completedLoans
-            : 100;
+            : 0;
         uint256 score = BASE_SCORE;
         score += r.completedLoans * COMPLETED_WEIGHT;
         score += (onTimeRate * ON_TIME_MULTIPLIER) / 10;
-        if (r.defaults > 0) {
-            score -= r.defaults * DEFAULT_PENALTY;
-        }
-        r.score = score > 0 ? score : 0;
+        uint256 penalty = r.defaults * DEFAULT_PENALTY;
+        r.score = penalty >= score ? 0 : score - penalty;
     }
 
     /**

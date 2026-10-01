@@ -12,8 +12,7 @@ import { Select } from "@/components/ui/Select";
 import { Toast, ToastType } from "@/components/ui/Toast";
 import { useWallet } from "@/contexts/WalletContext";
 import { useLoans } from "@/hooks/useLoans";
-import { formatEther } from "ethers";
-import type { Loan } from "@/types/loan";
+import { TransactionNotice } from "@/components/ui/TransactionNotice";
 import { cn } from "@/lib/utils";
 
 const containerVariants = {
@@ -49,7 +48,7 @@ const DURATION_OPTIONS = [
 export default function CreateLoanPage() {
   const router = useRouter();
   const { isConnected, address } = useWallet();
-  const { createLoan, borrowFromPool, fetchCreditScore, getAlgorithmicInterestRate, loading } = useLoans();
+  const { createLoan, borrowFromPool, fetchCreditScore, getAlgorithmicInterestRate, loading, transaction } = useLoans();
 
   const [amount, setAmount] = useState("");
   const [interestRate, setInterestRate] = useState<string>("");
@@ -75,8 +74,7 @@ export default function CreateLoanPage() {
       return null;
     }
 
-    // Simple interest calculation for display: P * (1 + (r/100 * d/365))
-    const interest = amountNum * (rateNum / 100) * (durationNum / 365);
+    const interest = amountNum * (rateNum / 100);
     const total = amountNum + interest;
 
     // Calculate deadline date
@@ -159,7 +157,7 @@ export default function CreateLoanPage() {
       <motion.div variants={itemVariants} className="flex flex-col gap-2">
         <h1 className="text-h2 font-bold tracking-tight text-slate-900 dark:text-white">Create Loan Request</h1>
         <p className="max-w-xl text-body text-slate-600 dark:text-slate-400">
-          Securely request liquidity. Your Credit Repation Score determines your standing in the CredTrust ecosystem.
+          Securely request USDC liquidity. Your credit reputation determines your standing in the CredTrust Arc ecosystem.
         </p>
       </motion.div>
 
@@ -187,7 +185,7 @@ export default function CreateLoanPage() {
                   </div>
                   <h3 className="text-h4 font-bold text-slate-900 dark:text-white">Wallet not connected</h3>
                   <p className="mt-2 text-small text-slate-500 dark:text-slate-400 max-w-xs">
-                    Please connect your MetaMask wallet to initialize an on-chain loan request.
+                    Connect an EVM-compatible wallet to initialize an on-chain loan request.
                   </p>
                   <Button variant="primary" className="mt-8 glow-primary" onClick={() => (window as any).ethereum?.request({ method: 'eth_requestAccounts' })}>
                     Connect Now
@@ -197,7 +195,7 @@ export default function CreateLoanPage() {
                 <form onSubmit={handleSubmit} className="flex flex-col gap-10">
                   <div className="grid grid-cols-1 gap-8 sm:grid-cols-2">
                     <Input
-                      label="Principal Amount (CTC)"
+                      label="Principal Amount (USDC)"
                       type="number"
                       min="1"
                       step="0.01"
@@ -207,14 +205,14 @@ export default function CreateLoanPage() {
                       className="dark:bg-slate-900/40"
                     />
                     <div className="space-y-4">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-primary-500">Protocol Assigned APR</p>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-primary-500">Protocol Assigned Rate</p>
                       <div className="rounded-xl bg-primary-500/5 p-4 border border-primary-500/10 dark:bg-primary-500/[0.03]">
                         <div className="flex items-center justify-between gap-4">
-                          <span className="text-h4 font-bold text-slate-900 dark:text-white">{interestRate || "—"}% APP</span>
+                          <span className="text-h4 font-bold text-slate-900 dark:text-white">{interestRate || "—"}%</span>
                           <span className="text-[10px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">Locked</span>
                         </div>
                         <p className="mt-2 text-[10px] text-slate-500 leading-tight">
-                          Rate is algorithmic and non-negotiable, locked based on your Credit Reputation Score ({creditScore ?? "..."}).
+                          The fixed loan rate is based on your Credit Reputation Score ({creditScore ?? "..."}).
                         </p>
                       </div>
                     </div>
@@ -280,6 +278,8 @@ export default function CreateLoanPage() {
                     </motion.div>
                   )}
 
+                  <TransactionNotice transaction={transaction} />
+
                   <div className="flex flex-col gap-4 sm:flex-row pt-4">
                     <Button
                       type="submit"
@@ -318,7 +318,7 @@ export default function CreateLoanPage() {
                   <div className="p-1.5 rounded-md bg-white/10">
                     <CheckCircle2 className="size-4 text-primary-400" />
                   </div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-primary-400 uppercase">Your Standing</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-primary-400">Your Standing</p>
                 </div>
 
                 <div className="mt-2 flex items-baseline gap-2">
@@ -338,7 +338,7 @@ export default function CreateLoanPage() {
                     />
                   </div>
                   <p className="text-[10px] text-white/50 leading-relaxed italic">
-                    CredTrust reputation is immutable and builds with every successful settlement.
+                    CredTrust Arc reputation is immutable and builds with every successful settlement.
                   </p>
                 </div>
               </CardContent>
@@ -360,11 +360,11 @@ export default function CreateLoanPage() {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-1">
                         <span className="text-[10px] font-bold text-slate-500 uppercase">Interest</span>
-                        <p className="font-medium text-slate-900 dark:text-white">{repaymentPreview.interest} CTC</p>
+                        <p className="font-medium text-slate-900 dark:text-white">{repaymentPreview.interest} USDC</p>
                       </div>
                       <div className="space-y-1 text-right">
                         <span className="text-[10px] font-bold text-slate-500 uppercase">Total Due</span>
-                        <p className="font-bold text-primary-600 dark:text-primary-400">{repaymentPreview.total} CTC</p>
+                        <p className="font-bold text-primary-600 dark:text-primary-400">{repaymentPreview.total} USDC</p>
                       </div>
                     </div>
                     <div className="mt-2 rounded-xl bg-slate-900/5 dark:bg-slate-100/5 p-4 border border-slate-200 dark:border-slate-800">

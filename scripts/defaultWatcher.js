@@ -18,7 +18,7 @@ const LOAN_FACTORY_ABI = require("../src/lib/contracts/LoanFactory.json").abi;
 const LOAN_ABI = require("../src/lib/contracts/Loan.json").abi;
 
 async function main() {
-  const RPC = process.env.CREDITCOIN_TESTNET_RPC || process.env.RPC || "http://127.0.0.1:8545";
+  const RPC = process.env.ARC_RPC_URL || "https://rpc.mainnet.arc.io";
   const factoryAddr = process.env.NEXT_PUBLIC_LOAN_FACTORY_ADDRESS;
   const pk = process.env.PRIVATE_KEY;
 

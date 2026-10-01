@@ -14,9 +14,15 @@ async function main() {
   console.log('Lender:', lender.address);
 
   // Deploy a fresh LoanFactory & CreditScore for this run so addresses are valid
+  const Token = await ethers.getContractFactory('MockUSDC');
+  const token = await Token.deploy();
+  const tokenAddress = await token.getAddress();
+  await token.mint(borrower.address, ethers.parseUnits('10', 6));
+  await token.mint(lender.address, ethers.parseUnits('10', 6));
+
   const Factory = await ethers.getContractFactory('LoanFactory');
   console.log('Deploying LoanFactory...');
-  const factory = await Factory.deploy();
+  const factory = await Factory.deploy(tokenAddress);
   await factory.waitForDeployment?.();
   // Backwards compatibility for older hardhat versions
   if (factory.deployTransaction) await factory.deployed();
@@ -26,12 +32,11 @@ async function main() {
   console.log('CreditScore deployed to:', creditScoreAddress);
 
   // Create loan as borrower
-  const principal = ethers.parseEther('0.01'); // small amount for local
-  const interestBps = 500; // 5%
+  const principal = ethers.parseUnits('1', 6);
   const durationDays = 1;
 
   console.log('Creating loan...');
-  const txCreate = await factory.connect(borrower).createLoan(principal, interestBps, durationDays);
+  const txCreate = await factory.connect(borrower).createLoan(principal, durationDays);
   await txCreate.wait();
   console.log('Loan created tx:', txCreate.hash);
 
@@ -45,14 +50,16 @@ async function main() {
 
   // Fund loan as lender
   console.log('Funding loan with principal:', principal.toString());
-  const txFund = await loan.connect(lender).fund({ value: principal });
+  await token.connect(lender).approve(loanAddr, principal);
+  const txFund = await loan.connect(lender).fund(principal);
   await txFund.wait();
   console.log('Fund tx:', txFund.hash);
 
   // Borrower repay total (principal + interest)
   const total = await loan.getTotalRepayment();
-  console.log('Total repayment (wei):', total.toString());
-  const txRepay = await loan.connect(borrower).repay({ value: total });
+  console.log('Total repayment (USDC units):', total.toString());
+  await token.connect(borrower).approve(loanAddr, total);
+  const txRepay = await loan.connect(borrower).repay();
   await txRepay.wait();
   console.log('Repay tx:', txRepay.hash);
 

@@ -27,6 +27,6 @@ jobs:
         env:
           NEXT_PUBLIC_LOAN_FACTORY_ADDRESS: ${{ secrets.NEXT_PUBLIC_LOAN_FACTORY_ADDRESS }}
           PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
-          CREDITCOIN_TESTNET_RPC: "https://rpc.cc3-testnet.creditcoin.network"
+          ARC_RPC_URL: "https://rpc.mainnet.arc.io"
         run: |
           node scripts/defaultWatcher.js

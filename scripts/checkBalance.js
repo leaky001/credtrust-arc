@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // Simple balance checker for onboarding
 // Usage (PowerShell):
-// $env:CREDITCOIN_TESTNET_RPC = "https://rpc.cc3-testnet.creditcoin.network"; node .\scripts\checkBalance.js 0xYourAddress
+// $env:ARC_RPC_URL = "https://rpc.mainnet.arc.io"; node .\scripts\checkBalance.js 0xYourAddress
 
 const { ethers } = require('ethers');
 
 async function main() {
-  const rpc = process.env.CREDITCOIN_TESTNET_RPC || process.env.RPC || 'https://rpc.cc3-testnet.creditcoin.network';
+  const rpc = process.env.ARC_RPC_URL || 'https://rpc.mainnet.arc.io';
   const provider = new ethers.JsonRpcProvider(rpc);
   const addr = process.argv[2] || process.env.ADDRESS;
   if (!addr) {
@@ -15,11 +15,11 @@ async function main() {
   }
 
   try {
-    const balance = await provider.getBalance(addr);
-    const ether = Number(balance) / 1e18;
+    const usdcAddress = process.env.ARC_USDC_ADDRESS || process.env.NEXT_PUBLIC_ARC_USDC_ADDRESS || '0x3600000000000000000000000000000000000000';
+    const usdc = new ethers.Contract(usdcAddress, ["function balanceOf(address) view returns (uint256)"], provider);
+    const balance = await usdc.balanceOf(addr);
     console.log('Address:', addr);
-    console.log('Balance (wei):', balance.toString());
-    console.log('Balance (CC approx):', ether);
+    console.log('USDC balance:', ethers.formatUnits(balance, 6));
   } catch (err) {
     console.error('Error fetching balance:', err.message || err);
     process.exit(1);
