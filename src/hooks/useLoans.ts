@@ -37,6 +37,96 @@ const ERC20_ABI = [
 
 export type TransactionState = TransactionFeedback;
 
+const LOAN_CACHE_TTL_MS = 4000;
+const loanReadCache = new Map<string, { loans: Loan[]; expiresAt: number }>();
+const loanReadInFlight = new Map<string, Promise<Loan[]>>();
+const ACTIVITY_CACHE_TTL_MS = 15000;
+const activityReadCache = new Map<string, { activities: AccountActivity[]; expiresAt: number }>();
+const activityReadInFlight = new Map<string, Promise<AccountActivity[]>>();
+const HISTORY_LOG_BLOCK_RANGE = 10_000;
+
+async function queryFilterInChunks(contract: Contract, filter: any, startBlock: number, endBlock: number): Promise<any[]> {
+  if (endBlock < startBlock) return [];
+
+  const logs: any[] = [];
+  for (let fromBlock = startBlock; fromBlock <= endBlock;) {
+    const toBlock = Math.min(fromBlock + HISTORY_LOG_BLOCK_RANGE - 1, endBlock);
+    logs.push(...await contract.queryFilter(filter, fromBlock, toBlock));
+    fromBlock = toBlock + 1;
+  }
+
+  const uniqueLogs = new Map<string, any>();
+  for (const log of logs) {
+    uniqueLogs.set(`${log.transactionHash}:${log.index}`, log);
+  }
+  return Array.from(uniqueLogs.values()).sort((left, right) =>
+    left.blockNumber - right.blockNumber || left.index - right.index
+  );
+}
+
+async function fetchLogsInChunks(provider: { getLogs: (filter: any) => Promise<any[]> }, filter: any, startBlock: number, endBlock: number): Promise<any[]> {
+  if (endBlock < startBlock) return [];
+
+  const logs: any[] = [];
+  for (let fromBlock = startBlock; fromBlock <= endBlock;) {
+    const toBlock = Math.min(fromBlock + HISTORY_LOG_BLOCK_RANGE - 1, endBlock);
+    logs.push(...await provider.getLogs({ ...filter, fromBlock, toBlock }));
+    fromBlock = toBlock + 1;
+  }
+
+  const uniqueLogs = new Map<string, any>();
+  for (const log of logs) {
+    uniqueLogs.set(`${log.transactionHash}:${log.index}`, log);
+  }
+  return Array.from(uniqueLogs.values()).sort((left, right) =>
+    left.blockNumber - right.blockNumber || left.index - right.index
+  );
+}
+
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, map: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      results[index] = await map(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+function invalidateLoanReadCache() {
+  loanReadCache.clear();
+  loanReadInFlight.clear();
+  activityReadCache.clear();
+  activityReadInFlight.clear();
+}
+
+function isRpcRateLimitError(err: unknown): boolean {
+  const error = err as {
+    message?: string;
+    shortMessage?: string;
+    code?: string | number;
+    status?: number;
+    error?: { message?: string; code?: string | number; status?: number };
+    info?: { error?: { message?: string; code?: string | number; status?: number } };
+  };
+  const details = [
+    error?.message,
+    error?.shortMessage,
+    error?.code,
+    error?.status,
+    error?.error?.message,
+    error?.error?.code,
+    error?.error?.status,
+    error?.info?.error?.message,
+    error?.info?.error?.code,
+    error?.info?.error?.status,
+  ].filter((value) => value !== undefined && value !== null).join(" ");
+  return /\b429\b|too many requests|rate.?limit|resource exhausted/i.test(details);
+}
+
 export function useLoans() {
   const { signer, isConnected } = useWallet();
   const [loading, setLoading] = useState(false);
@@ -74,6 +164,7 @@ export function useLoans() {
       setTransaction({ status: "pending", message: `${action} is pending on Arc.`, hash: tx.hash, explorerUrl });
       const receipt = await tx.wait();
       if (!receipt || receipt.status !== 1) throw new Error("Transaction failed on Arc.");
+      invalidateLoanReadCache();
       setTransaction({ status: "success", message: `${action} confirmed.`, hash: tx.hash, explorerUrl });
       return receipt;
     } catch (err) {
@@ -268,74 +359,90 @@ export function useLoans() {
         console.warn("Could not verify network:", netErr);
       }
 
-      const factory = new Contract(
-        CONTRACT_ADDRESSES.loanFactory,
-        LOAN_FACTORY_ABI,
-        activeProvider
-      );
-      const addrs = await factory.listLoans();
+      const cacheKey = `${RPC_URL}:${SUPPORTED_CHAIN_ID}:${CONTRACT_ADDRESSES.loanFactory.toLowerCase()}`;
+      const cached = loanReadCache.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) return cached.loans;
+      if (cached) loanReadCache.delete(cacheKey);
+      const inFlight = loanReadInFlight.get(cacheKey);
+      if (inFlight) return await inFlight;
 
-      const loans: Loan[] = [];
-      for (let i = 0; i < addrs.length; i++) {
-        const loanContract = new Contract(addrs[i], LOAN_ABI, activeProvider!);
-        const [
-          borrower,
-          principal,
-          interestRateBps,
-          durationDays,
-          status,
-          fundedAt,
-          repaymentDeadline,
-          totalFunded,
-          lendersCount,
-        ] = await Promise.all([
-          loanContract.borrower(),
-          loanContract.principal(),
-          loanContract.interestRateBps(),
-          loanContract.durationDays(),
-          loanContract.status(),
-          loanContract.fundedAt(),
-          loanContract.repaymentDeadline(),
-          loanContract.totalFunded(),
-          loanContract.getLendersCount(),
-        ]);
+      const readPromise = (async () => {
+        const factory = new Contract(
+          CONTRACT_ADDRESSES.loanFactory,
+          LOAN_FACTORY_ABI,
+          activeProvider
+        );
+        const addrs = await factory.listLoans();
+        const loans: Loan[] = [];
 
-        const lenderAddresses = Number(lendersCount) > 0
-          ? await Promise.all(Array.from(
-            { length: Number(lendersCount) },
-            (_, index) => loanContract.lenders(index) as Promise<string>
-          ))
-          : [];
+        for (let i = 0; i < addrs.length; i++) {
+          const loanContract = new Contract(addrs[i], LOAN_ABI, activeProvider);
+          const [
+            borrower,
+            principal,
+            interestRateBps,
+            durationDays,
+            status,
+            fundedAt,
+            repaymentDeadline,
+            totalFunded,
+            lendersCount,
+          ] = await Promise.all([
+            loanContract.borrower(),
+            loanContract.principal(),
+            loanContract.interestRateBps(),
+            loanContract.durationDays(),
+            loanContract.status(),
+            loanContract.fundedAt(),
+            loanContract.repaymentDeadline(),
+            loanContract.totalFunded(),
+            loanContract.getLendersCount(),
+          ]);
 
-        let remaining = "0";
-        const remBn = (principal as bigint) - (totalFunded as bigint);
-        remaining = remBn > BigInt(0) ? remBn.toString() : "0";
+          const lenderAddresses = Number(lendersCount) > 0
+            ? await Promise.all(Array.from(
+              { length: Number(lendersCount) },
+              (_, index) => loanContract.lenders(index) as Promise<string>
+            ))
+            : [];
 
-        loans.push({
-          id: addrs[i],
-          borrower,
-          lender: lenderAddresses[0] === ethers.ZeroAddress ? null : lenderAddresses[0] ?? null,
-          lenders: lenderAddresses.filter((lender) => lender !== ethers.ZeroAddress),
-          lendersCount: Number(lendersCount),
-          totalFunded: totalFunded.toString(),
-          principal: principal.toString(),
-          remaining,
-          interestRate: (Number(interestRateBps) / 100).toString(),
-          duration: Number(durationDays),
-          status: STATUS_MAP[Number(status)] ?? "Requested",
-          createdAt: 0,
-          fundedAt: fundedAt > 0 ? Number(fundedAt) : undefined,
-          repaymentDeadline:
-            repaymentDeadline > 0 ? Number(repaymentDeadline) : undefined,
-        });
+          const remBn = (principal as bigint) - (totalFunded as bigint);
+          loans.push({
+            id: addrs[i],
+            borrower,
+            lender: lenderAddresses[0] === ethers.ZeroAddress ? null : lenderAddresses[0] ?? null,
+            lenders: lenderAddresses.filter((lender) => lender !== ethers.ZeroAddress),
+            lendersCount: Number(lendersCount),
+            totalFunded: totalFunded.toString(),
+            principal: principal.toString(),
+            remaining: remBn > BigInt(0) ? remBn.toString() : "0",
+            interestRate: (Number(interestRateBps) / 100).toString(),
+            duration: Number(durationDays),
+            status: STATUS_MAP[Number(status)] ?? "Requested",
+            createdAt: 0,
+            fundedAt: fundedAt > 0 ? Number(fundedAt) : undefined,
+            repaymentDeadline:
+              repaymentDeadline > 0 ? Number(repaymentDeadline) : undefined,
+          });
+        }
+        return loans;
+      })();
+      loanReadInFlight.set(cacheKey, readPromise);
+      try {
+        const loans = await readPromise;
+        loanReadCache.set(cacheKey, { loans, expiresAt: Date.now() + LOAN_CACHE_TTL_MS });
+        return loans;
+      } finally {
+        if (loanReadInFlight.get(cacheKey) === readPromise) loanReadInFlight.delete(cacheKey);
       }
-      return loans;
       } catch (err) {
       console.error("fetchLoans error:", err);
       const message = err instanceof Error ? err.message : String(err);
       // Handle known failure modes with actionable messages
       let userFacingMessage = message;
-      if (message.includes("could not decode result data") || message.includes("0x")) {
+      if (isRpcRateLimitError(err)) {
+        userFacingMessage = "Arc RPC is temporarily rate-limiting requests. Please wait a moment and retry.";
+      } else if (message.includes("could not decode result data") || message.includes("0x")) {
         userFacingMessage = `Contract Interaction Failed: The app found address ${CONTRACT_ADDRESSES.loanFactory} but it has no code on your current wallet's network. (Expected Chain: ${SUPPORTED_CHAIN_ID})`;
       } else if (message.includes("ECONNREFUSED")) {
         userFacingMessage = `Blockchain connection failed. Ensure the testnet RPC (${RPC_URL}) is reachable and that your node (e.g. Hardhat) is running.`;
@@ -456,75 +563,107 @@ export function useLoans() {
     const activeProvider = rpcProvider || signerProvider || signer?.provider;
     if (!activeProvider) throw new Error("No provider is available to read account activity.");
 
-    const factory = new Contract(CONTRACT_ADDRESSES.loanFactory, LOAN_FACTORY_ABI, activeProvider);
-    const [loanAddresses, configuredPoolAddress] = await Promise.all([
-      factory.listLoans() as Promise<string[]>,
-      Promise.resolve(CONTRACT_ADDRESSES.lendingPool || null),
-    ]);
-    const poolAddress = configuredPoolAddress || await factory.getLendingPool() as string;
-    if (!poolAddress) throw new Error("Lending pool is not available.");
+    const cacheKey = `${RPC_URL}:${SUPPORTED_CHAIN_ID}:${CONTRACT_ADDRESSES.loanFactory.toLowerCase()}:${userAddress.toLowerCase()}`;
+    const cached = activityReadCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.activities;
+    if (cached) activityReadCache.delete(cacheKey);
+    const inFlight = activityReadInFlight.get(cacheKey);
+    if (inFlight) return inFlight;
 
-    const eventLogs: Array<{ kind: AccountActivity["kind"]; log: any; loanAddress?: string; amount?: string; interest?: string }> = [];
-    const loanCreatedLogs = await factory.queryFilter(factory.filters.LoanCreated(null, userAddress)) as any[];
-    for (const log of loanCreatedLogs) {
-      eventLogs.push({
-        kind: "Loan created",
-        log,
-        loanAddress: loanAddresses[Number(log.args.loanId)],
-        amount: log.args.principal.toString(),
+    const activityPromise = (async () => {
+      const factory = new Contract(CONTRACT_ADDRESSES.loanFactory, LOAN_FACTORY_ABI, activeProvider);
+      const loanAddresses = await factory.listLoans() as string[];
+      const poolAddress = CONTRACT_ADDRESSES.lendingPool || await factory.getLendingPool() as string;
+      if (!poolAddress) throw new Error("Lending pool is not available.");
+      const latestBlock = await activeProvider.getBlockNumber();
+
+      const eventLogs: Array<{ kind: AccountActivity["kind"]; log: any; loanAddress?: string; amount?: string; interest?: string }> = [];
+      const loanCreatedLogs = await queryFilterInChunks(factory, factory.filters.LoanCreated(null, userAddress), 0, latestBlock);
+      for (const log of loanCreatedLogs) {
+        eventLogs.push({
+          kind: "Loan created",
+          log,
+          loanAddress: loanAddresses[Number(log.args.loanId)],
+          amount: log.args.principal.toString(),
+        });
+      }
+
+      const pool = new Contract(poolAddress, LENDING_POOL_ABI, activeProvider);
+      const depositTopic = pool.interface.getEvent("Deposited")!.topicHash;
+      const withdrawalTopic = pool.interface.getEvent("Withdrawn")!.topicHash;
+      const accountTopic = ethers.zeroPadValue(userAddress, 32);
+      const poolLogs = await fetchLogsInChunks(activeProvider, {
+        address: poolAddress,
+        topics: [[depositTopic, withdrawalTopic], accountTopic],
+      }, 0, latestBlock);
+      for (const log of poolLogs) {
+        const parsed = pool.interface.parseLog(log);
+        if (parsed?.name === "Deposited") {
+          eventLogs.push({ kind: "Pool deposit", log, amount: parsed.args.amount.toString() });
+        } else if (parsed?.name === "Withdrawn") {
+          eventLogs.push({ kind: "Pool withdrawal", log, amount: parsed.args.amount.toString() });
+        }
+      }
+
+      const loanEventGroups = await mapWithConcurrency(loanAddresses, 3, async (loanAddress) => {
+        const loan = new Contract(loanAddress, LOAN_ABI, activeProvider);
+        const borrower = await loan.borrower() as string;
+        const lendersCount = await loan.getLendersCount() as bigint;
+        const lenders: string[] = [];
+        for (let index = 0; index < Number(lendersCount); index++) {
+          lenders.push(await loan.lenders(index) as string);
+        }
+        const isBorrower = borrower.toLowerCase() === userAddress.toLowerCase();
+        const isLender = lenders.some((lender) => lender.toLowerCase() === userAddress.toLowerCase());
+        if (!isBorrower && !isLender) return [];
+
+        const loanLogs = await fetchLogsInChunks(activeProvider, { address: loanAddress }, 0, latestBlock);
+        const activities: Array<{ kind: AccountActivity["kind"]; log: any; loanAddress: string; amount?: string; interest?: string }> = [];
+        for (const log of loanLogs) {
+          const parsed = loan.interface.parseLog(log);
+          if (!parsed) continue;
+          if (parsed.name === "LoanFunded") {
+            activities.push({ kind: "Loan funded", log, loanAddress, amount: parsed.args.amount.toString() });
+          } else if (parsed.name === "LoanPartiallyFunded") {
+            activities.push({ kind: "Loan partially funded", log, loanAddress, amount: parsed.args.amount.toString() });
+          } else if (parsed.name === "LoanRepaid") {
+            activities.push({ kind: "Loan repaid", log, loanAddress, amount: parsed.args.principal.toString(), interest: parsed.args.interest.toString() });
+          } else if (parsed.name === "LoanDefaulted") {
+            activities.push({ kind: "Loan defaulted", log, loanAddress });
+          }
+        }
+        return activities;
       });
+      eventLogs.push(...loanEventGroups.flat());
+
+      const blockTimestamps = new Map<number, number>();
+      const eventBlockNumbers = Array.from(new Set(eventLogs.map(({ log }) => log.blockNumber)));
+      await mapWithConcurrency(eventBlockNumbers, 3, async (blockNumber) => {
+        const block = await activeProvider.getBlock(blockNumber);
+        if (block) blockTimestamps.set(blockNumber, block.timestamp);
+        return blockNumber;
+      });
+
+      return eventLogs.map(({ kind, log, loanAddress, amount, interest }) => ({
+        id: `${log.transactionHash}-${log.index}`,
+        kind,
+        transactionHash: log.transactionHash,
+        blockNumber: log.blockNumber,
+        timestamp: blockTimestamps.get(log.blockNumber) ?? 0,
+        loanAddress,
+        amount,
+        interest,
+      })).sort((left, right) => right.blockNumber - left.blockNumber);
+    })();
+
+    activityReadInFlight.set(cacheKey, activityPromise);
+    try {
+      const activities = await activityPromise;
+      activityReadCache.set(cacheKey, { activities, expiresAt: Date.now() + ACTIVITY_CACHE_TTL_MS });
+      return activities;
+    } finally {
+      if (activityReadInFlight.get(cacheKey) === activityPromise) activityReadInFlight.delete(cacheKey);
     }
-
-    const pool = new Contract(poolAddress, LENDING_POOL_ABI, activeProvider);
-    const [deposits, withdrawals] = await Promise.all([
-      pool.queryFilter(pool.filters.Deposited(userAddress)) as Promise<any[]>,
-      pool.queryFilter(pool.filters.Withdrawn(userAddress)) as Promise<any[]>,
-    ]);
-    for (const log of deposits) eventLogs.push({ kind: "Pool deposit", log, amount: log.args.amount.toString() });
-    for (const log of withdrawals) eventLogs.push({ kind: "Pool withdrawal", log, amount: log.args.amount.toString() });
-
-    const loanEventGroups = await Promise.all(loanAddresses.map(async (loanAddress) => {
-      const loan = new Contract(loanAddress, LOAN_ABI, activeProvider);
-      const [borrower, lendersCount] = await Promise.all([loan.borrower() as Promise<string>, loan.getLendersCount() as Promise<bigint>]);
-      const lenders = Number(lendersCount) > 0
-        ? await Promise.all(Array.from({ length: Number(lendersCount) }, (_, index) => loan.lenders(index) as Promise<string>))
-        : [];
-      const isBorrower = borrower.toLowerCase() === userAddress.toLowerCase();
-      const isLender = lenders.some((lender) => lender.toLowerCase() === userAddress.toLowerCase());
-      if (!isBorrower && !isLender) return [];
-
-      const [funded, partiallyFunded, repaid, defaulted] = await Promise.all([
-        loan.queryFilter(isBorrower ? loan.filters.LoanFunded() : loan.filters.LoanFunded(userAddress)),
-        loan.queryFilter(isBorrower ? loan.filters.LoanPartiallyFunded() : loan.filters.LoanPartiallyFunded(userAddress)),
-        loan.queryFilter(isLender ? loan.filters.LoanRepaid() : loan.filters.LoanRepaid(userAddress)),
-        loan.queryFilter(isLender ? loan.filters.LoanDefaulted() : loan.filters.LoanDefaulted(userAddress)),
-      ]);
-      return [
-        ...funded.map((log: any) => ({ kind: "Loan funded" as const, log, loanAddress, amount: log.args.amount.toString() })),
-        ...partiallyFunded.map((log: any) => ({ kind: "Loan partially funded" as const, log, loanAddress, amount: log.args.amount.toString() })),
-        ...repaid.map((log: any) => ({ kind: "Loan repaid" as const, log, loanAddress, amount: log.args.principal.toString(), interest: log.args.interest.toString() })),
-        ...defaulted.map((log: any) => ({ kind: "Loan defaulted" as const, log, loanAddress })),
-      ];
-    }));
-    eventLogs.push(...loanEventGroups.flat());
-
-    const blockTimestamps = new Map<number, number>();
-    const eventBlockNumbers = Array.from(new Set(eventLogs.map(({ log }) => log.blockNumber)));
-    await Promise.all(eventBlockNumbers.map(async (blockNumber) => {
-      const block = await activeProvider.getBlock(blockNumber);
-      if (block) blockTimestamps.set(blockNumber, block.timestamp);
-    }));
-
-    return eventLogs.map(({ kind, log, loanAddress, amount, interest }) => ({
-      id: `${log.transactionHash}-${log.index}`,
-      kind,
-      transactionHash: log.transactionHash,
-      blockNumber: log.blockNumber,
-      timestamp: blockTimestamps.get(log.blockNumber) ?? 0,
-      loanAddress,
-      amount,
-      interest,
-    })).sort((left, right) => right.blockNumber - left.blockNumber);
   }, [rpcProvider, signer, signerProvider]);
 
   const getAlgorithmicInterestRate = useCallback(
